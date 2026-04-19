@@ -1,0 +1,234 @@
+---
+id: testing
+title: Testing
+sidebar_label: Testing
+description: Write deterministic tests for agent logic using MockModel.
+---
+
+# Testing
+
+`MockModel` lets you write deterministic tests for agent logic without making real API calls. Script exact responses and tool call sequences; the SDK executes them in order.
+
+```typescript
+import { createAgent, startRun, MockModel } from "@etagents/sdk";
+import { describe, it, expect } from "vitest";
+
+describe("weather agent", () => {
+  it("calls get_weather and returns a formatted response", async () => {
+    const model = new MockModel([
+      // Turn 1: model requests a tool call
+      {
+        text: null,
+        toolCalls: [
+          { id: "tc_1", name: "get_weather", args: { city: "Tokyo" } },
+        ],
+        usage: { prompt: 50, completion: 20, total: 70 },
+      },
+      // Turn 2: model produces a final response after seeing the tool result
+      {
+        text: "Tokyo is currently sunny at 22\u00b0C.",
+        toolCalls: [],
+        usage: { prompt: 80, completion: 25, total: 105 },
+      },
+    ]);
+
+    const agent = createAgent({
+      name: "weather-bot",
+      systemPrompt: "You are a weather assistant.",
+      model,
+      tools: [getWeatherTool], // your tool definition
+    });
+
+    const result = await startRun(agent, "What is the weather in Tokyo?");
+
+    expect(result.status).toBe("complete");
+    expect(result.response).toBe("Tokyo is currently sunny at 22\u00b0C.");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].name).toBe("get_weather");
+    expect(result.turns).toBe(2);
+  });
+});
+```
+
+`MockModel` replays the scripted turns in order. Your real tool handlers still execute \u2014 only the model responses are mocked. This lets you test the full loop including Zod validation, tool execution, and result formatting.
+
+---
+
+## MockModel turn shape
+
+Each turn in the `MockModel` array is a `MockTurn`:
+
+```typescript
+interface MockTurn {
+  text: string | null;        // the model's text response (null if the turn is tool-call only)
+  toolCalls: Array<{
+    id: string;               // arbitrary unique ID
+    name: string;             // must match a registered tool name
+    args: Record<string, unknown>; // passed to the tool handler
+  }>;
+  usage: {
+    prompt: number;
+    completion: number;
+    total: number;
+  };
+}
+```
+
+If `text` is `null` and `toolCalls` is non-empty, the model turn requests tool calls. The next scripted turn runs after all tool handlers return.
+
+---
+
+## Testing tool handlers in isolation
+
+Use `executeTool` to test a tool's handler directly, without an agent or model:
+
+```typescript
+import { executeTool } from "@etagents/sdk";
+import { describe, it, expect } from "vitest";
+
+describe("get_weather tool", () => {
+  it("returns JSON with city and temperature", async () => {
+    const result = await executeTool(getWeatherTool, { city: "Tokyo" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = JSON.parse(result.data) as { city: string; tempC: number };
+      expect(data.city).toBe("Tokyo");
+      expect(data.tempC).toBeTypeOf("number");
+    }
+  });
+
+  it("rejects invalid arguments", async () => {
+    // city is required — passing an empty object should fail Zod validation
+    const result = await executeTool(getWeatherTool, {});
+    expect(result.ok).toBe(false);
+  });
+});
+```
+
+---
+
+## Persistence tests with FileStore
+
+Use a temporary directory per test to isolate session state:
+
+```typescript
+import { createAgent, startRun, FileStore } from "@etagents/sdk";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, afterEach, it, expect } from "vitest";
+
+let storeDir: string;
+let store: FileStore;
+
+beforeEach(async () => {
+  storeDir = await mkdtemp(join(tmpdir(), "eta-test-"));
+  store = new FileStore({ dir: storeDir });
+});
+
+afterEach(async () => {
+  await rm(storeDir, { recursive: true, force: true });
+});
+
+it("persists and restores conversation history", async () => {
+  const model = new MockModel([
+    { text: "Hello, Sagar!", toolCalls: [], usage: { prompt: 10, completion: 5, total: 15 } },
+    { text: "Your name is Sagar.", toolCalls: [], usage: { prompt: 20, completion: 8, total: 28 } },
+  ]);
+
+  const agent = createAgent({
+    name: "assistant",
+    systemPrompt: "You are a helpful assistant.",
+    model,
+    store,
+  });
+
+  await startRun(agent, "My name is Sagar.", { runId: "test-run" });
+  const result = await startRun(agent, "What is my name?", { runId: "test-run" });
+
+  expect(result.response).toBe("Your name is Sagar.");
+  expect(result.messages.length).toBeGreaterThan(2); // history was loaded
+});
+```
+
+---
+
+## Testing HITL flows
+
+```typescript
+import { createAgent, startRun, continueRun, MockModel, FileStore } from "@etagents/sdk";
+
+it("suspends and resumes with human approval", async () => {
+  const model = new MockModel([
+    {
+      text: null,
+      toolCalls: [{ id: "tc_1", name: "send_email", args: { to: "alice@example.com", subject: "Hi", body: "Hello!" } }],
+      usage: { prompt: 50, completion: 20, total: 70 },
+    },
+    {
+      text: "Email sent to Alice.",
+      toolCalls: [],
+      usage: { prompt: 80, completion: 15, total: 95 },
+    },
+  ]);
+
+  const hitlStore = new FileStore({ dir: storeDir });
+
+  const agent = createAgent({
+    name: "agent",
+    systemPrompt: "...",
+    model,
+    tools: [sendEmailTool],
+    hitl: { mode: "tool", hitlStore },
+  });
+
+  // Step 1: run suspends
+  const first = await startRun(agent, "Send a welcome email to alice@example.com");
+  expect(first.status).toBe("awaiting_approval");
+
+  const checkpointId = first.pendingApprovals[0].toolCallId;
+  const decisions = first.pendingApprovals.map((pa) => ({
+    toolCallId: pa.toolCallId,
+    approved: true,
+  }));
+
+  // Step 2: resume
+  const final = await continueRun(checkpointId, decisions, { agent });
+  expect(final.status).toBe("complete");
+  expect(final.response).toBe("Email sent to Alice.");
+});
+```
+
+---
+
+## Testing events
+
+Collect `RunEvent`s to assert what the agent did:
+
+```typescript
+it("emits the expected events", async () => {
+  const events: RunEvent[] = [];
+
+  await startRun(agent, input, {
+    onEvent: (e) => events.push(e),
+  });
+
+  const toolCallEvents = events.filter((e) => e.kind === "tool_call");
+  expect(toolCallEvents).toHaveLength(1);
+  expect(toolCallEvents[0].toolCall.name).toBe("get_weather");
+
+  const completeEvent = events.find((e) => e.kind === "complete");
+  expect(completeEvent?.result.status).toBe("complete");
+});
+```
+
+---
+
+## Related
+
+- [Core Concepts](../getting-started/concepts) \u2014 `AgentDef`, `ToolDef`, `startRun`.
+- [HITL](./advanced/hitl) \u2014 Full suspend/resume flow.
+- [Concurrency](./advanced/concurrency) \u2014 `executeTool` for standalone tool testing.
+- [Error Handling](./advanced/error-handling) \u2014 How errors surface in tests.
+

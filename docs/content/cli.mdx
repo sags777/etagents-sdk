@@ -1,0 +1,234 @@
+---
+id: cli
+title: CLI Reference
+sidebar_label: CLI Reference
+description: Complete reference for the eta command-line interface.
+---
+
+# CLI Reference
+
+The `eta` binary is installed when you add `@etagents/sdk`. It provides 12 commands for running agents, managing sessions, working with vector memory, and tooling tasks.
+
+```bash
+npx eta --help
+```
+
+---
+
+## eta run
+
+Execute an agent file against a single prompt.
+
+```bash
+eta run ./my-agent.ts "What is the capital of France?"
+eta run ./my-agent.ts "Summarise Q4 sales" --provider openai
+eta run ./my-agent.ts "Hello" --run-id user-alice --store .sessions
+```
+
+| Flag | Description |
+|---|---|
+| `--provider <name>` | Model provider (`anthropic`, `openai`, `gemini`, `azure`) |
+| `--run-id <id>` | Session run ID — loads and saves history |
+| `--store <dir>` | Session store directory (default: `.sessions`) |
+| `--max-turns <n>` | Maximum turns override |
+| `--max-tokens <n>` | Token budget override |
+
+Your agent file must export a default `AgentDef`:
+
+```typescript title="my-agent.ts"
+import { createAgent } from "@etagents/sdk";
+export default createAgent({ name: "assistant", systemPrompt: "...", model: "claude-sonnet-4-6" });
+```
+
+---
+
+## eta chat
+
+Start an interactive REPL session with an agent.
+
+```bash
+eta chat ./my-agent.ts
+eta chat ./my-agent.ts --run-id user-alice
+```
+
+Type a message and press Enter to send. Type `.exit` or press `Ctrl+C` to quit. The conversation persists if `--run-id` is set.
+
+---
+
+## eta exec
+
+Execute a single tool from an agent file directly, bypassing the LLM.
+
+```bash
+eta exec ./my-agent.ts search_database --args '{"query":"Q4 sales","limit":5}'
+```
+
+Useful for testing tool handlers in isolation without spinning up a full agent run.
+
+---
+
+## eta session
+
+Manage persisted session history.
+
+```bash
+# List all sessions in the store
+eta session list --store .sessions
+
+# Inspect a specific session
+eta session get user-alice --store .sessions
+
+# Show token usage for a session
+eta session get user-alice --store .sessions --usage
+
+# Delete a session
+eta session delete user-alice --store .sessions
+```
+
+`eta session list` outputs a table of run IDs with creation and update timestamps.
+
+---
+
+## eta memory
+
+Work with vector memory (requires `RedisMemory` provider).
+
+```bash
+# Index a session's transcript into memory
+eta memory index user-alice --store .sessions
+
+# Search memory for relevant context
+eta memory search "user preferences" --top-k 5
+
+# Clear all memory entries for an agent
+eta memory clear --agent-id my-agent
+```
+
+| Flag | Description |
+|---|---|
+| `--top-k <n>` | Number of results to return (default: 5) |
+| `--agent-id <id>` | Scope to a specific agent |
+| `--min-score <n>` | Minimum similarity score (0\u20131) |
+
+---
+
+## eta scan
+
+Discover agent files and MCP server configs in a directory.
+
+```bash
+eta scan ./src
+eta scan ./src --mcp   # also show *.mcp.json files
+```
+
+Outputs a list of discovered `*.agent.ts`, `*.agent.js`, and (with `--mcp`) `*.mcp.json` files. Skips `node_modules` and dotfile directories.
+
+See the [Scanner guide](./guides/advanced/scanner) for programmatic usage.
+
+---
+
+## eta inspect
+
+Display the structure of an agent: its name, system prompt, tools, and MCP servers.
+
+```bash
+eta inspect ./my-agent.ts
+```
+
+Outputs the agent's name, system prompt, tool names and their Zod-derived JSON schemas. Useful for verifying tool signatures before a run.
+
+---
+
+## eta build
+
+Type-check and validate an agent file.
+
+```bash
+eta build ./my-agent.ts
+```
+
+Runs TypeScript type-checking on the agent file and validates that the exported default is a valid `AgentDef`. Use this in CI to catch configuration errors before deploying.
+
+---
+
+## eta serve
+
+Expose an agent's tools as an MCP server over stdio. Other agents can connect to it using `transport: "stdio"`.
+
+```bash
+eta serve ./my-agent.ts
+```
+
+The server stays running until you send `Ctrl+C`. Connect from another agent:
+
+```typescript
+const agent = createAgent({
+  mcp: [{ transport: "stdio", command: "eta", args: ["serve", "./my-agent.ts"], serverName: "my-server" }],
+});
+```
+
+---
+
+## eta orchestrate
+
+Route a prompt through a pool of agent files using `AgentRouter`.
+
+```bash
+eta orchestrate ./coordinator.ts --agents ./agents/ --prompt "Research and summarise AI trends"
+```
+
+| Flag | Description |
+|---|---|
+| `--agents <dir>` | Directory containing `*.agent.ts` files to include in the pool |
+| `--prompt <text>` | The prompt to route |
+| `--strategy <name>` | Routing strategy: `rule` (default) or `triage` |
+
+---
+
+## eta init
+
+Scaffold a new agent project.
+
+```bash
+eta init my-agent
+```
+
+Creates a directory `my-agent/` with:
+- `package.json` with `@etagents/sdk` dependency
+- `tsconfig.json` configured for ESM
+- `my-agent.agent.ts` with a basic `createAgent` export
+- `.env.example` with `ANTHROPIC_API_KEY`
+
+---
+
+## eta mask
+
+Test PII masking rules on a string.
+
+```bash
+eta mask "My email is alice@example.com and my SSN is 123-45-6789" --rules email,ssn
+```
+
+Outputs the masked string with placeholders, and lists the detected matches. Useful for verifying that your privacy rules cover the expected patterns.
+
+| Flag | Description |
+|---|---|
+| `--rules <list>` | Comma-separated built-in rules: `email`, `phone`, `ssn`, `creditCard`, `ipv4` |
+
+---
+
+## Global flags
+
+| Flag | Description |
+|---|---|
+| `--help` | Show help for any command |
+| `--version` | Print the installed `@etagents/sdk` version |
+
+---
+
+## Related
+
+- [Quick Start](./getting-started/quickstart) \u2014 Using `eta run` in the 5-minute guide.
+- [Persistence](./guides/essentials/persistence) \u2014 `--run-id` and `--store` flags.
+- [Scanner](./guides/advanced/scanner) \u2014 Programmatic equivalent of `eta scan`.
+

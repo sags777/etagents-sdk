@@ -31,7 +31,7 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Session Internals',
-          collapsed: true,
+          collapsed: false,
           items: [
             'guides/session-internals/lifecycle-hooks',
             'guides/session-internals/event-stream',
@@ -41,7 +41,7 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Advanced',
-          collapsed: true,
+          collapsed: false,
           items: [
             'guides/advanced/multi-agent',
             'guides/advanced/hitl',

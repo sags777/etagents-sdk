@@ -1,0 +1,96 @@
+---
+id: index
+title: Introduction
+sidebar_label: Introduction
+description: What is @etagents/sdk and what problems does it solve?
+---
+
+# Introduction
+
+`@etagents/sdk` is a TypeScript SDK for building production-ready AI agents. It handles the loop between your LLM, your tools, and your infrastructure — so you write the logic, not the scaffolding.
+
+```bash
+npm install @etagents/sdk
+```
+
+```typescript
+import { createAgent, startRun } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+const result = await startRun(agent, "What is the capital of France?");
+console.log(result.response); // "The capital of France is Paris."
+```
+
+---
+
+## What it does
+
+`@etagents/sdk` runs the agent turn loop for you: the model responds, tools execute, results feed back into the model, and the cycle continues until the agent reaches a final answer. Every step is configurable and observable.
+
+| What you need | What the SDK provides |
+|---|---|
+| Connect to an LLM | Four built-in providers (Anthropic, OpenAI, Azure, Gemini) + a custom interface |
+| Call typed tools | `defineTool` with Zod validation — the model sees JSON Schema, your handler gets typed args |
+| Persist conversations | `FileStore` (local) and `RedisStore` (distributed) — auto-loaded on `runId` |
+| Mask PII | `RegexPrivacy` with five built-in rules; custom patterns supported |
+| Semantic recall | `InMemory` for dev; `RedisMemory` + embeddings for production |
+| Approve tool calls | HITL suspend/resume — compatible with stateless HTTP endpoints |
+| Route to specialists | `AgentRouter` with `RuleRouter` (deterministic) or `TriageRouter` (LLM-based) |
+| Stream to the browser | `SessionEventStream` → `toNextHandler` / `toExpressHandler` + `SessionEventSource` client |
+| Post-run reflection | `InsightConfig` — fact extraction with three-tier deduplication |
+| Discover agents | `ToolScanner` — filesystem-based agent and MCP config discovery |
+
+---
+
+## Core model
+
+Three functions are the entire public API for most use cases:
+
+**`createAgent(config)`** — validates your configuration, resolves string model shorthands, and returns a frozen `AgentDef`. Think of this as defining what your agent is.
+
+**`defineTool(config)`** — wraps a Zod schema and a handler into a `ToolDef`. The kernel validates every incoming argument before your handler runs.
+
+**`startRun(agent, input, config?)`** — runs the agent to completion and returns a `RunResult` with the response, full message history, tool call log, and token usage.
+
+See [Core Concepts](./concepts) for a deeper explanation of each.
+
+---
+
+## Provider slots
+
+Four aspects of the runtime are swappable via interfaces:
+
+| Slot | Default | Swap for |
+|---|---|---|
+| `model` | `AnthropicModel` (`claude-sonnet-4-6`) | OpenAI, Gemini, Azure, or any HTTP API |
+| `store` | `FileStore` | `RedisStore` or custom persistence |
+| `memory` | none | `InMemory` or `RedisMemory` for semantic recall |
+| `privacy` | none | `RegexPrivacy` for PII masking |
+
+Everything else — the turn loop, tool routing, budget tracking, HITL checkpointing — is kernel-internal and not replaceable. This is intentional: production reliability comes from a single, well-tested execution path.
+
+---
+
+## Requirements
+
+- **Node.js** ≥ 18
+- **TypeScript** ≥ 5.6 (ESM only)
+- An API key for your chosen LLM provider
+
+---
+
+## Where to start
+
+<div className="card-grid">
+
+- **[Quick Start](./quickstart)** — Build a working agent with tools and persistence in 5 minutes.
+- **[Core Concepts](./concepts)** — Understand `AgentDef`, `ToolDef`, `RunResult`, and the provider slots before going further.
+- **[Streaming](../guides/essentials/streaming)** — Subscribe to real-time events from your agent.
+- **[CLI Reference](../cli)** — `eta run`, `eta chat`, `eta inspect`, and more.
+
+</div>

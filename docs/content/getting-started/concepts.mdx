@@ -1,0 +1,274 @@
+---
+id: concepts
+title: Core Concepts
+sidebar_label: Core Concepts
+description: Mental model for AgentDef, ToolDef, startRun, RunResult, and the four provider slots.
+---
+
+# Core Concepts
+
+This page explains the five building blocks you will encounter in every etagents project. Read this before diving into the guides.
+
+---
+
+## AgentDef
+
+An `AgentDef` is the static description of your agent — its identity, model, tools, and runtime configuration. You create one with `createAgent` and pass it to `startRun`. The result is **frozen**: you cannot mutate it after creation.
+
+```typescript
+import { createAgent } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+  tools: [],
+  maxTurns: 20,
+  maxTokens: 8192,
+});
+```
+
+`createAgent` does three things:
+1. Validates every config field and throws on invalid input.
+2. Resolves string model shorthands (e.g. `"claude-sonnet-4-6"`) to a `ModelProvider` instance using `process.env.ANTHROPIC_API_KEY`.
+3. Fills missing provider slots with defaults (`FileStore`, no memory, no privacy).
+
+**Full `AgentConfig` reference:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | `string` | required | Agent identifier |
+| `systemPrompt` | `string` | required | Base system prompt |
+| `model` | `ModelProvider \| string` | `"claude-sonnet-4-6"` | LLM backend |
+| `tools` | `ToolDef[]` | `[]` | Callable tools |
+| `store` | `StoreProvider` | `FileStore` | Session persistence |
+| `memory` | `MemoryProvider` | none | Semantic recall |
+| `privacy` | `PrivacyProvider` | none | PII masking |
+| `mcp` | `McpServerConfig[]` | `[]` | MCP servers |
+| `insight` | `InsightConfig` | disabled | Post-run reflection |
+| `hitl` | `HitlConfig` | `{ mode: "none" }` | Human-in-the-loop |
+| `hooks` | `LifecycleHooks` | no-op | Turn/tool callbacks |
+| `maxTurns` | `number` | `20` | Hard turn cap |
+| `maxTokens` | `number` | `8192` | Token budget per run |
+
+---
+
+## ToolDef
+
+A `ToolDef` connects an LLM-visible description to your code. The LLM sees the name, description, and JSON Schema derived from your Zod schema. Your handler receives fully validated, typed arguments.
+
+```typescript
+import { z } from "zod";
+import { defineTool } from "@etagents/sdk";
+
+const searchRecords = defineTool({
+  name: "search_records",
+  description: "Search the database for records matching a query.",
+  params: z.object({
+    query: z.string().describe("Full-text search query"),
+    limit: z.number().int().min(1).max(100).default(10),
+  }),
+  async handler({ query, limit }) {
+    // args are typed and validated — no runtime type coercion needed
+    const rows = await db.search(query, limit);
+    return JSON.stringify(rows);
+  },
+});
+```
+
+`defineTool` rules:
+- `name` must be unique within an agent and must not contain spaces.
+- `handler` must return a `string` — the kernel sends the return value back to the LLM as a tool result.
+- If `handler` throws, the error message is sent back to the LLM as a `ToolError` result (the run does not crash).
+- `description` is what the LLM reads to decide whether to call the tool. Write it from the model's perspective.
+
+**Advanced `ToolDef` fields:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `sequential` | `boolean` | `false` | If `true`, this tool never runs concurrently with other tools in the same turn |
+| `timeoutMs` | `number` | `30000` | Per-tool timeout; overrides the session default |
+
+See [Concurrency](../guides/advanced/concurrency) and [Tools](../guides/essentials/streaming) for more.
+
+---
+
+## startRun
+
+`startRun(agent, input, config?)` is the kernel entry point. It runs the agent to completion and returns a `RunResult`.
+
+```typescript
+import { startRun } from "@etagents/sdk";
+
+const result = await startRun(agent, "Summarise the Q4 sales data", {
+  runId: "session-u123",    // enables persistence
+  maxTurns: 15,             // overrides AgentConfig
+  maxTokens: 16_000,
+  signal: controller.signal, // cancellation
+  onEvent: (event) => console.log(event.kind),
+});
+```
+
+**What happens inside `startRun`:**
+
+```
+Input arrives
+   ↓
+Load session history (if runId + store)
+   ↓
+Retrieve memories (if memory provider)
+   ↓
+Apply privacy masking (if privacy provider)
+   ↓
+┌─────────────────────────────────┐
+│  Turn loop                       │
+│  1. Call model                   │
+│  2. Track token budget           │
+│  3. If tool calls → execute all  │
+│  4. Feed results back to model   │
+│  5. Repeat until done / capped   │
+└─────────────────────────────────┘
+   ↓
+Unmask privacy placeholders
+   ↓
+Persist snapshot (best-effort)
+   ↓
+Run insight extraction (if enabled)
+   ↓
+Return RunResult
+```
+
+`config` fields passed to `startRun` override the corresponding `AgentConfig` fields for that run only.
+
+---
+
+## RunResult
+
+Every `startRun` call resolves to a `RunResult`. Always check `status` before reading `response`.
+
+```typescript
+const result = await startRun(agent, input);
+
+// Five possible statuses
+if (result.status === "complete") {
+  console.log(result.response);      // Final LLM message
+  console.log(result.turns);         // LLM turns consumed
+  console.log(result.totalUsage);    // { prompt, completion, total }
+  console.log(result.toolCalls);     // Full log of every tool call
+}
+
+if (result.status === "budget_exceeded") {
+  // Token budget was hit — partial work may have been done
+  console.log(result.turns, result.totalUsage);
+}
+
+if (result.status === "awaiting_approval") {
+  // A HITL suspension occurred — see the HITL guide
+  console.log(result.pendingApprovals);
+}
+```
+
+**`RunResult` shape:**
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `RunStatus` | `"complete"` · `"error"` · `"cancelled"` · `"budget_exceeded"` · `"awaiting_approval"` |
+| `response` | `string` | Final LLM message (empty string on non-complete exits) |
+| `messages` | `Message[]` | Full conversation history including tool calls and results |
+| `toolCalls` | `ToolCallRecord[]` | All tool invocations with name, args, result, durationMs |
+| `turns` | `number` | LLM turns consumed |
+| `totalUsage` | `TokenUsage?` | `{ prompt, completion, total }` summed across all turns |
+| `pendingApprovals` | `PendingApproval[]` | Tool calls waiting for human approval (HITL only) |
+
+---
+
+## Provider slots
+
+Four slots in `AgentConfig` accept plug-in implementations:
+
+```typescript
+import {
+  AnthropicModel, OpenAIModel,  // model
+  InMemory, RedisMemory,         // memory
+  FileStore, RedisStore,         // store
+  RegexPrivacy,                  // privacy
+} from "@etagents/sdk";
+```
+
+Each slot has an interface that you can implement yourself if the built-in options do not fit.
+
+### model
+
+The LLM backend. Pass a string shorthand or a `ModelProvider` instance:
+
+```typescript
+// String shorthand — resolves to AnthropicModel using ANTHROPIC_API_KEY
+createAgent({ model: "claude-sonnet-4-6", ... });
+
+// Full instance — explicit control
+createAgent({ model: AnthropicModel.create({ apiKey: "...", model: "claude-opus-4-6" }), ... });
+
+// OpenAI
+createAgent({ model: OpenAIModel.create({ apiKey: "...", model: "gpt-4o" }), ... });
+
+// Testing — deterministic responses, no API calls
+import { MockModel } from "@etagents/sdk";
+createAgent({ model: new MockModel([{ text: "Hello!", toolCalls: [], usage: { prompt: 10, completion: 5, total: 15 } }]), ... });
+```
+
+### store
+
+Key-value persistence for session snapshots and HITL checkpoints.
+
+```typescript
+// FileStore — JSON on disk. Default when no store is configured.
+new FileStore({ dir: ".sessions" });
+
+// RedisStore — for multi-instance or serverless deployments
+new RedisStore({ url: process.env.REDIS_URL });
+```
+
+### memory
+
+Semantic retrieval injected into context before turn 1. Memory is indexed after each run (fire-and-forget).
+
+```typescript
+// InMemory — cosine similarity over plain array. No infrastructure required.
+new InMemory();
+
+// RedisMemory — Redis Stack + OpenAI embeddings. For production cross-session recall.
+// Requires Redis Stack (not plain Redis) — needs FT.CREATE / FT.SEARCH commands.
+new RedisMemory({ redis, embedder, minScore: 0.7, ttlSeconds: 604_800 });
+```
+
+### privacy
+
+PII masking applied before every LLM call; unmasking applied to the model's response. Tool handlers always receive the original unmasked values.
+
+```typescript
+import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
+
+new RegexPrivacy({
+  rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone, BUILTIN_RULES.ssn],
+  customRules: [{ pattern: /ACCT-\d{8}/g, label: "account" }],
+});
+```
+
+Placeholder format: `⟨eta:email:0001⟩` — unambiguously distinct from any user text.
+
+See the [Privacy guide](../guides/session-internals/privacy) for the full mask/unmask flow.
+
+---
+
+## What the kernel does not expose
+
+The turn loop, tool routing, budget tracking, HITL checkpointing, and privacy fence are all kernel-internal. They are not swappable by design: production reliability comes from a single, well-tested execution path. If you need different behaviour, implement a custom `ModelProvider`, `StoreProvider`, `MemoryProvider`, or `PrivacyProvider` — those are the right extension points.
+
+---
+
+## Related
+
+- [Quick Start](./quickstart) — Working examples for each concept.
+- [Streaming](../guides/essentials/streaming) — The `RunEvent` types emitted during a run.
+- [Persistence](../guides/essentials/persistence) — Session snapshots and the `runId` resume flow.
+- [Testing](../guides/testing) — `MockModel` for deterministic, zero-API-call tests.

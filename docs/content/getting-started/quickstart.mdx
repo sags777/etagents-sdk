@@ -1,0 +1,187 @@
+---
+id: quickstart
+title: Quick Start
+sidebar_label: Quick Start
+description: Build your first AI agent with @etagents/sdk in 5 minutes.
+---
+
+# Quick Start
+
+In this guide you will go from zero to a working agent that can call tools and remember conversation history. You will need an Anthropic API key.
+
+---
+
+## Step 1 — Install
+
+```bash
+npm install @etagents/sdk
+```
+
+Set your API key:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+---
+
+## Step 2 — Your first run
+
+Create `agent.ts` and paste this code:
+
+```typescript title="agent.ts"
+import { createAgent, startRun } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a concise, helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+const result = await startRun(agent, "What is the capital of France?");
+
+console.log(result.response);   // "The capital of France is Paris."
+console.log(result.status);     // "complete"
+console.log(result.turns);      // 1
+```
+
+Run it:
+
+```bash
+npx tsx agent.ts
+```
+
+`createAgent` returns a frozen `AgentDef` — a validated configuration object. `startRun` executes the turn loop and returns a `RunResult` once the agent finishes. You will always get a `status` field: `"complete"`, `"error"`, `"cancelled"`, `"budget_exceeded"`, or `"awaiting_approval"`.
+
+---
+
+## Step 3 — Add tools
+
+Tools let the agent call your code. `defineTool` wraps a Zod schema and a handler function. The kernel validates every argument before your handler runs.
+
+```typescript title="agent-with-tools.ts"
+import { z } from "zod";
+import { createAgent, defineTool, startRun } from "@etagents/sdk";
+
+// Define a tool with typed parameters
+const getWeather = defineTool({
+  name: "get_weather",
+  description: "Return the current weather for a city.",
+  params: z.object({
+    city: z.string().describe("City name, e.g. 'Tokyo'"),
+  }),
+  async handler({ city }) {
+    // Replace with a real API call
+    return JSON.stringify({ city, condition: "sunny", tempC: 22 });
+  },
+});
+
+const agent = createAgent({
+  name: "weather-bot",
+  systemPrompt: "You are a weather assistant. Use tools to answer questions.",
+  model: "claude-sonnet-4-6",
+  tools: [getWeather],
+});
+
+const result = await startRun(
+  agent,
+  "What is the weather in Tokyo and London?",
+);
+
+console.log(result.response);
+// "Tokyo is sunny at 22°C. London is rainy at 14°C."
+
+console.log(result.toolCalls.map((t) => t.name));
+// ["get_weather", "get_weather"]
+```
+
+The agent can call `get_weather` multiple times if needed. All tool calls in a single LLM turn run in parallel by default.
+
+---
+
+## Step 4 — Persist the conversation
+
+Set a `runId` to automatically save and reload conversation history. The built-in `FileStore` writes JSON snapshots to disk — no infrastructure required.
+
+```typescript title="agent-persistent.ts"
+import { createAgent, startRun, FileStore } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant with memory.",
+  model: "claude-sonnet-4-6",
+  store: new FileStore({ dir: ".sessions" }),
+});
+
+// First message — stored under run ID "user-alice"
+await startRun(agent, "My name is Alice.", { runId: "user-alice" });
+
+// Second message — history is rehydrated automatically
+const result = await startRun(agent, "What is my name?", { runId: "user-alice" });
+console.log(result.response); // "Your name is Alice."
+```
+
+The snapshot is written after every run. Pass the same `runId` on subsequent calls to continue where you left off. See [Persistence](../guides/essentials/persistence) for `RedisStore` and multi-instance deployments.
+
+---
+
+## Step 5 — Observe events in real time
+
+Subscribe to `onEvent` to see what the agent is doing as it runs:
+
+```typescript title="agent-events.ts"
+import { createAgent, startRun, defineTool } from "@etagents/sdk";
+import { z } from "zod";
+import type { RunEvent } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+  tools: [/* your tools */],
+});
+
+const result = await startRun(
+  agent,
+  "Search for the latest news on TypeScript.",
+  {
+    onEvent(event: RunEvent) {
+      switch (event.kind) {
+        case "turn_start":
+          console.log(`[turn ${event.turn}] LLM call`);
+          break;
+        case "tool_call":
+          console.log(`[tool] → ${event.toolCall.name}`);
+          break;
+        case "tool_result":
+          console.log(`[tool] ← ${event.durationMs}ms, error=${event.isError}`);
+          break;
+        case "complete":
+          console.log(`[done] ${event.result.status}`);
+          break;
+      }
+    },
+  },
+);
+```
+
+`onEvent` fires synchronously on each event. For server-sent events over HTTP, see the [Event Stream guide](../guides/session-internals/event-stream).
+
+---
+
+## What you built
+
+You now have the core loop:
+
+- `createAgent` — defines the agent (model, tools, store, system prompt)
+- `defineTool` — wraps your functions with Zod-validated parameters
+- `startRun` — executes the loop and returns a structured `RunResult`
+- `runId` + `FileStore` — persists conversation history across calls
+- `onEvent` — observes the agent as it works
+
+## Next steps
+
+- **[Core Concepts](./concepts)** — Understand `AgentDef`, `ToolDef`, the kernel loop, and provider slots in depth.
+- **[Streaming](../guides/essentials/streaming)** — Learn every `RunEvent` type and how to build a streaming chat UI.
+- **[HITL](../guides/advanced/hitl)** — Require human approval before sensitive tool calls.
+- **[Multi-Agent](../guides/advanced/multi-agent)** — Route messages across specialist agents.

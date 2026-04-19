@@ -1,0 +1,49 @@
+{
+  "name": "@etagents/sdk",
+  "version": "0.0.1",
+  "description": "Model-agnostic agent runtime for everythingagents",
+  "type": "module",
+  "bin": {
+    "eta": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./next": {
+      "import": "./dist/http/next/next.js",
+      "types": "./dist/http/next/next.d.ts"
+    },
+    "./express": {
+      "import": "./dist/http/express/express.js",
+      "types": "./dist/http/express/express.d.ts"
+    },
+    "./client": {
+      "import": "./dist/http/event-source/event-source.js",
+      "types": "./dist/http/event-source/event-source.d.ts"
+    },
+    "./orchestration": {
+      "import": "./dist/orchestration/index.js",
+      "types": "./dist/orchestration/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
+    "nanoid": "^5.1.7",
+    "redis": "^5.11.0",
+    "zod": "^4.3.6"
+  }
+}

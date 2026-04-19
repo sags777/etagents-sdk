@@ -1,0 +1,118 @@
+---
+id: insight
+title: Insight (Post-Run Reflection)
+sidebar_label: Insight
+description: Extract durable facts from completed runs using InsightConfig.
+---
+
+# Insight (Post-Run Reflection)
+
+Insight drives automatic fact extraction after every run. The kernel calls `runInsight()` once the turn loop exits, extracts structured facts from the conversation transcript, and stores them in the session snapshot for injection into future runs.
+
+```typescript
+import { createAgent, startRun } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+  insight: {
+    enabled: true,
+    model: "claude-haiku-4-5",   // use a cheap model for reflection
+    maxFacts: 30,
+  },
+});
+
+await startRun(agent, "I prefer dark mode and I always use TypeScript.", {
+  runId: "user-alice",
+});
+
+// On the next run, extracted facts are injected into context automatically
+const result = await startRun(agent, "What are my preferences?", {
+  runId: "user-alice",
+});
+console.log(result.response);
+// "You prefer dark mode and you always use TypeScript."
+```
+
+Insight extraction runs after the run exits, on the non-critical path. A failed extraction never crashes the run.
+
+---
+
+## InsightResult shape
+
+When insight runs, it returns an `InsightResult` stored in `SessionSnapshot.__eta`:
+
+```typescript
+interface InsightResult {
+  facts: string[];      // Decisions, preferences, action items (evictable, cap: maxFacts)
+  userFacts: string[];  // Identity facts — name, role, title (never evicted, cap: 10)
+  summary: string;      // One-paragraph session summary
+  topics: string[];     // High-level topic tags
+}
+```
+
+On the next run, `facts` and `userFacts` are injected into the system prompt as a `Relevant context:` block before turn 1.
+
+---
+
+## InsightConfig reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `false` | Whether to run insight after each run |
+| `model` | `ModelProvider \| string` | agent's model | Model used for extraction (use a cheaper model) |
+| `maxFacts` | `number` | `30` | Cap on session facts (identity facts are separate) |
+| `prompts.extractFacts` | `string` | built-in | Override the extraction prompt |
+
+```typescript
+insight: {
+  enabled: true,
+  model: "claude-haiku-4-5",
+  maxFacts: 20,
+  prompts: {
+    extractFacts: "Extract key decisions, user preferences, and open action items only.",
+  },
+},
+```
+
+---
+
+## Deduplication
+
+Facts are deduplicated across runs using three tiers:
+
+1. **Exact normalised match** — lowercased, trimmed, whitespace-collapsed. Exact duplicates are dropped.
+2. **Levenshtein near-duplicate** — similarity ≥ 0.85. Near-identical phrasings are merged.
+3. **Cap with eviction** — when `maxFacts` is reached, task-outcome facts (at the end of the pool) are evicted first. Identity facts (`userFacts`) are never evicted.
+
+This means: the more often a preference appears across sessions, the more likely it is to survive eviction.
+
+---
+
+## Fact categories
+
+**`userFacts`** are identity-stable facts: name, role, organisation, timezone, language. They are capped at 10 and never evicted. The extraction model is prompted to identify them separately.
+
+**`facts`** are session-level observations: decisions made, preferences expressed, tasks completed. They accumulate up to `maxFacts` and are evicted when the cap is reached.
+
+---
+
+## Choosing the right model
+
+Insight extraction makes one LLM call per run. A fast, inexpensive model is ideal:
+
+| Model | Quality | Cost | Recommended for |
+|---|---|---|---|
+| `claude-haiku-4-5` | Good | Low | Most use cases |
+| `claude-sonnet-4-6` | Better | Medium | High-value sessions where accuracy matters |
+
+Avoid using the same model for both the agent and insight extraction in production — extraction is a background task that should not compete with the agent's token budget.
+
+---
+
+## Related
+
+- [Persistence](../essentials/persistence) — `InsightResult` is stored in the session snapshot.
+- [Core Concepts](../../getting-started/concepts) — `AgentConfig.insight` field reference.
+- [Testing](../testing) — How to test insight extraction with `MockModel`.

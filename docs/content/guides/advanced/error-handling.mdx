@@ -1,0 +1,207 @@
+---
+id: error-handling
+title: Error Handling
+sidebar_label: Error Handling
+description: Handle AgentError, ToolError, BudgetError, and HitlError in production.
+---
+
+# Error Handling
+
+The SDK uses a typed error hierarchy rooted at `EtaError`. Every error has a `code` string for programmatic handling and a human-readable `message`. Errors surface through `RunResult.status`, thrown exceptions, and `RunEvent` error events.
+
+---
+
+## Error taxonomy
+
+```
+EtaError
+├── AgentError       — run-level failures (budget, cancellation, depth)
+├── ToolError        — tool execution failures (timeout, handler throws, schema mismatch)
+├── BudgetError      — token budget exceeded (also surfaces as RunStatus "budget_exceeded")
+└── HitlError        — HITL failures (checkpoint expired, store error)
+```
+
+All errors extend `EtaError`, which extends `Error`. You can catch at any level:
+
+```typescript
+import { EtaError, AgentError, ToolError } from "@etagents/sdk";
+
+try {
+  const result = await startRun(agent, input);
+} catch (err) {
+  if (err instanceof HitlError) {
+    // checkpoint expired or store failure
+  } else if (err instanceof AgentError) {
+    // run-level error
+  } else if (err instanceof EtaError) {
+    // any SDK error
+  } else {
+    throw err; // not ours
+  }
+}
+```
+
+---
+
+## RunResult status vs thrown exceptions
+
+Most run failures surface through `RunResult.status`, not thrown exceptions. Know which is which:
+
+| Condition | How it surfaces |
+|---|---|
+| Agent completed normally | `status: "complete"` |
+| Token budget exceeded | `status: "budget_exceeded"` (no throw) |
+| AbortSignal fired | `status: "cancelled"` (no throw) |
+| HITL suspension | `status: "awaiting_approval"` (no throw) |
+| Unexpected error in turn loop | `status: "error"` + `result.response` contains error message |
+| Checkpoint expired (`continueRun`) | Throws `HitlError` |
+| Invalid `AgentConfig` | Throws `AgentError` at `createAgent` time |
+
+Only `continueRun` and `createAgent` commonly throw. `startRun` almost never throws — check `status` instead.
+
+---
+
+## AgentError codes
+
+| Code | When |
+|---|---|
+| `"config_invalid"` | `createAgent` received invalid configuration |
+| `"depth_exceeded"` | Agent delegation depth exceeded the limit (default: 5) |
+| `"run_failed"` | Unrecoverable error in the turn loop |
+
+```typescript
+import { AgentError } from "@etagents/sdk";
+
+try {
+  const agent = createAgent({ name: "", systemPrompt: "..." }); // name is empty
+} catch (err) {
+  if (err instanceof AgentError && err.code === "config_invalid") {
+    console.error("Bad config:", err.message);
+  }
+}
+```
+
+---
+
+## ToolError
+
+`ToolError` is used when a tool fails. It does **not** throw out of `startRun` — the error is packaged as a tool result and sent back to the LLM so it can handle it gracefully.
+
+Common `ToolError` causes:
+
+| Cause | Code |
+|---|---|
+| Handler threw an exception | `"handler_error"` |
+| Tool timed out | `"timeout"` |
+| Arguments failed Zod validation | `"schema_error"` |
+
+The LLM sees the error message in the tool result and typically acknowledges the failure or tries an alternative approach.
+
+To detect tool errors in your code:
+
+```typescript
+const result = await startRun(agent, input, {
+  onEvent(event) {
+    if (event.kind === "tool_result" && event.isError) {
+      console.error(`Tool ${event.toolCallId} failed: ${event.result}`);
+    }
+  },
+});
+
+// Or inspect the toolCalls log
+const failedTools = result.toolCalls.filter((t) => t.isError);
+```
+
+---
+
+## HitlError
+
+`HitlError` is thrown by `continueRun` when checkpoint handling fails.
+
+| Code | When |
+|---|---|
+| `"checkpoint_expired"` | The checkpoint TTL elapsed before `continueRun` was called |
+| `"checkpoint_not_found"` | The checkpoint ID does not exist in the store |
+| `"store_error"` | The HITL store threw during read or write |
+
+```typescript
+import { HitlError } from "@etagents/sdk";
+
+try {
+  const result = await continueRun(checkpointId, decisions, { agent });
+} catch (err) {
+  if (err instanceof HitlError) {
+    switch (err.code) {
+      case "checkpoint_expired":
+        // Restart the run from scratch
+        return await startRun(agent, originalPrompt, { runId });
+      case "checkpoint_not_found":
+        throw new Error("Invalid checkpoint ID");
+      default:
+        throw err;
+    }
+  }
+}
+```
+
+---
+
+## Fail-open subsystems
+
+Several subsystems are fail-open: if they throw, the error is logged and the run continues.
+
+| Subsystem | Failure behaviour |
+|---|---|
+| Lifecycle hooks | Error logged; run continues |
+| Privacy masking | Error logged; run continues with unmasked input |
+| Memory indexing | Error logged; run exits normally |
+| Session persist | Error logged; `RunResult` still returned |
+| Insight extraction | Error logged; run exits normally |
+
+Failures in fail-open subsystems appear as `error` events in `onEvent`. Monitor them in production.
+
+---
+
+## Production pattern: wrapping startRun
+
+```typescript
+import { startRun, EtaError } from "@etagents/sdk";
+import type { AgentDef, RunResult } from "@etagents/sdk";
+
+async function runSafe(
+  agent: AgentDef,
+  input: string,
+  runId: string,
+): Promise<RunResult | null> {
+  try {
+    const result = await startRun(agent, input, { runId });
+
+    if (result.status === "error") {
+      logger.error("Agent run error", { runId, message: result.response });
+      return null;
+    }
+
+    if (result.status === "budget_exceeded") {
+      logger.warn("Budget exceeded", { runId, turns: result.turns, usage: result.totalUsage });
+    }
+
+    return result;
+  } catch (err) {
+    if (err instanceof EtaError) {
+      logger.error("SDK error", { runId, code: err.code, message: err.message });
+    } else {
+      logger.error("Unexpected error", { runId, err });
+    }
+    return null;
+  }
+}
+```
+
+---
+
+## Related
+
+- [Streaming](../essentials/streaming) — `error` and `exceeded` RunEvent kinds.
+- [HITL](./hitl) — `HitlError` on checkpoint expiry.
+- [Token Budget](../essentials/token-budget) — `budget_exceeded` status and `BudgetError`.
+- [Testing](../testing) — How to simulate errors with `MockModel`.

@@ -1,0 +1,202 @@
+---
+id: hitl
+title: Human-in-the-Loop (HITL)
+sidebar_label: Human-in-the-Loop
+description: Gate sensitive tool calls on human approval with suspend/resume checkpointing.
+---
+
+# Human-in-the-Loop (HITL)
+
+HITL gates tool calls on human approval. When the agent reaches a tool call requiring approval, the run **suspends**: it serialises the full run state to a store and returns with `status: "awaiting_approval"`. You present the pending tool calls to a human, collect decisions, then call `continueRun` to resume.
+
+```typescript
+import { z } from "zod";
+import { createAgent, startRun, continueRun, defineTool, FileStore } from "@etagents/sdk";
+
+const sendEmailTool = defineTool({
+  name: "send_email",
+  description: "Send an email on behalf of the user.",
+  params: z.object({
+    to: z.string(),
+    subject: z.string(),
+    body: z.string(),
+  }),
+  async handler({ to, subject }) {
+    await emailService.send({ to, subject });
+    return "Email sent.";
+  },
+});
+
+const agent = createAgent({
+  name: "email-agent",
+  systemPrompt: "You draft and send emails on behalf of the user.",
+  model: "claude-sonnet-4-6",
+  tools: [sendEmailTool],
+  hitl: {
+    mode: "tool",        // every tool call requires approval
+    hitlStore: new FileStore({ dir: ".checkpoints" }),
+    timeoutMs: 300_000,  // 5 minutes before checkpoint expires
+  },
+});
+
+// Step 1: Run suspends when it hits a tool call
+const first = await startRun(
+  agent,
+  "Send a welcome email to alice@example.com",
+  { runId: "session-alice" },
+);
+
+console.log(first.status); // "awaiting_approval"
+console.log(first.pendingApprovals);
+// [{ toolCallId: "tc_abc", name: "send_email", args: { to: "alice@example.com", ... }, agentName: "email-agent" }]
+
+// Step 2: Present pendingApprovals to the human and collect decisions
+// (your UI / webhook / Slack bot handles this)
+const checkpointId = "..."; // from first.pendingApprovals[0].toolCallId or store lookup
+
+const decisions = first.pendingApprovals.map((pa) => ({
+  toolCallId: pa.toolCallId,
+  approved: true,   // or false to deny
+}));
+
+// Step 3: Resume
+const final = await continueRun(checkpointId, decisions, { agent });
+console.log(final.status);    // "complete"
+console.log(final.response);  // LLM's final message
+```
+
+---
+
+## HITL modes
+
+| Mode | Behaviour |
+|---|---|
+| `"none"` | No approval required (default) |
+| `"tool"` | Every tool call requires approval |
+| `"sensitive"` | Only tools with `sensitive: true` in their `ToolDef` require approval |
+
+### sensitive mode
+
+Mark individual tools as sensitive and use `mode: "sensitive"` to require approval only for those tools:
+
+```typescript
+const sendEmailTool = defineTool({
+  name: "send_email",
+  // ...
+  sensitive: true,    // <-- this tool requires approval
+});
+
+const lookupTool = defineTool({
+  name: "lookup_contact",
+  // ...
+  // sensitive not set — runs without approval
+});
+
+const agent = createAgent({
+  hitl: { mode: "sensitive", hitlStore: store },
+});
+```
+
+---
+
+## ApprovalDecision
+
+Each decision object approves or denies a single tool call:
+
+```typescript
+interface ApprovalDecision {
+  toolCallId: string;
+  approved: boolean;
+}
+```
+
+You can approve some and deny others in the same batch:
+
+```typescript
+const decisions = [
+  { toolCallId: "tc_abc", approved: true },   // allow
+  { toolCallId: "tc_xyz", approved: false },  // deny
+];
+```
+
+Denied tool calls receive a synthetic result: `"Tool call rejected by human reviewer."` The LLM incorporates this into its final response.
+
+---
+
+## Suspend/resume in stateless HTTP
+
+HITL is designed for stateless environments where the process may not be alive when the human responds. The `SuspendSnapshot` checkpoint is written to `hitlStore` and can be loaded in any process.
+
+```typescript title="app/api/agent/route.ts"
+import { createAgent, startRun, continueRun, RedisStore } from "@etagents/sdk";
+import type { ApprovalDecision } from "@etagents/sdk";
+
+const hitlStore = new RedisStore({ url: process.env.REDIS_URL });
+
+const agent = createAgent({
+  name: "agent",
+  systemPrompt: "...",
+  hitl: { mode: "sensitive", hitlStore },
+});
+
+// POST /api/agent — new run
+export async function POST(req: Request) {
+  const { prompt, runId } = await req.json() as { prompt: string; runId: string };
+  const result = await startRun(agent, prompt, { runId });
+  return Response.json(result);
+}
+
+// POST /api/agent/resume — human has reviewed
+export async function PATCH(req: Request) {
+  const { checkpointId, decisions } = await req.json() as {
+    checkpointId: string;
+    decisions: ApprovalDecision[];
+  };
+  const result = await continueRun(checkpointId, decisions, { agent });
+  return Response.json(result);
+}
+```
+
+The `hitlStore` is separate from the session `store` in `AgentConfig`. Use `RedisStore` for `hitlStore` in multi-instance deployments so any instance can resume the checkpoint.
+
+---
+
+## Checkpoint expiry
+
+Checkpoints expire after `timeoutMs` (default: 5 minutes). If `continueRun` is called with an expired checkpoint, it throws an `EtaError` with code `"checkpoint_expired"`.
+
+```typescript
+try {
+  const result = await continueRun(checkpointId, decisions, { agent });
+} catch (err) {
+  if (err instanceof EtaError && err.code === "checkpoint_expired") {
+    // Restart the run from scratch
+    await startRun(agent, originalPrompt, { runId });
+  }
+}
+```
+
+---
+
+## SSE + HITL
+
+For streaming endpoints that need HITL, use `SessionEventStream.resume`:
+
+```typescript
+const eventStream = new SessionEventStream(agent);
+
+// In your resume endpoint:
+const body = eventStream.resume(checkpointId, decisions);
+return new Response(body, { headers: SSE_HEADERS });
+```
+
+See the [Event Stream guide](../session-internals/event-stream) for the full SSE setup.
+
+---
+
+## Related
+
+- [Persistence](../essentials/persistence) \u2014 `hitlStore` vs session `store`.
+- [Event Stream](../session-internals/event-stream) \u2014 `SessionEventStream.resume`.
+- [Error Handling](./error-handling) \u2014 `EtaError` codes including `checkpoint_expired`.
+

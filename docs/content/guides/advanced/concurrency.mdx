@@ -1,0 +1,133 @@
+---
+id: concurrency
+title: Concurrency
+sidebar_label: Concurrency
+description: Control parallel vs sequential tool execution within a single run.
+---
+
+# Concurrency
+
+By default, all tool calls in a single LLM turn run concurrently via `Promise.all`. Mark a tool `sequential: true` to force it to run alone — never concurrently with other tool calls in the same turn.
+
+```typescript
+import { z } from "zod";
+import { createAgent, defineTool, startRun } from "@etagents/sdk";
+
+// These two run in parallel when the LLM requests both in one turn
+const fetchWeather = defineTool({
+  name: "fetch_weather",
+  description: "Get current weather for a city.",
+  params: z.object({ city: z.string() }),
+  async handler({ city }) { return JSON.stringify(await weatherApi.get(city)); },
+});
+
+const fetchStocks = defineTool({
+  name: "fetch_stocks",
+  description: "Get current stock price.",
+  params: z.object({ ticker: z.string() }),
+  async handler({ ticker }) { return JSON.stringify(await stocksApi.get(ticker)); },
+});
+
+// This always runs alone — database writes must not interleave
+const writeRecord = defineTool({
+  name: "write_record",
+  description: "Write a record to the database.",
+  params: z.object({ key: z.string(), value: z.string() }),
+  sequential: true,   // <-- force single-at-a-time
+  async handler({ key, value }) {
+    await db.write(key, value);
+    return "Written.";
+  },
+});
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  model: "claude-sonnet-4-6",
+  tools: [fetchWeather, fetchStocks, writeRecord],
+});
+```
+
+---
+
+## How the kernel partitions tool calls
+
+When the LLM returns multiple tool calls in one response, the kernel splits them into two queues:
+
+```
+LLM response: [fetchWeather("Tokyo"), fetchStocks("AAPL"), writeRecord(...), fetchWeather("London")]
+                         ↓
+  Parallel batch: [fetchWeather("Tokyo"), fetchStocks("AAPL"), fetchWeather("London")]
+  Sequential queue: [writeRecord(...)]
+                         ↓
+  1. Run parallel batch with Promise.all()
+  2. Await all results
+  3. Run sequential queue one-by-one
+  4. Collect all results and send back to model
+```
+
+Sequential tools always run after the parallel batch completes. Within the sequential queue, tools run in the order the LLM requested them.
+
+---
+
+## When to use sequential: true
+
+Mark a tool `sequential: true` when:
+
+- **Database writes** that must not race with other writes in the same turn.
+- **File system operations** that depend on order (e.g. create then write).
+- **External APIs with rate limits** where a single-concurrent-call constraint is enforced by the provider.
+- **State machine transitions** where concurrent transitions would violate invariants.
+
+Do not mark read-only tools `sequential` — it adds latency with no benefit.
+
+---
+
+## Tool timeout
+
+Each tool has a per-tool timeout (`timeoutMs`) that overrides the session default:
+
+```typescript
+const callSlowApi = defineTool({
+  name: "call_slow_api",
+  description: "Calls an external API that may be slow.",
+  params: z.object({ query: z.string() }),
+  timeoutMs: 15_000,  // 15 seconds for this tool only
+  async handler({ query }) {
+    return await slowApi.call(query);
+  },
+});
+```
+
+Default timeout is `30 000` ms (30 seconds). Timed-out tools receive a `ToolError` result and the LLM sees the error message — the run does not crash.
+
+---
+
+## Standalone tool execution
+
+`executeTool` runs a single tool directly, bypassing the agent loop:
+
+```typescript
+import { executeTool } from "@etagents/sdk";
+
+const result = await executeTool(fetchWeather, { city: "Tokyo" });
+
+if (result.ok) {
+  console.log(result.data);   // validated tool output
+} else {
+  console.error(result.error); // ToolError with message
+}
+```
+
+Use `executeTool` for:
+- Unit testing a tool handler in isolation
+- Pre-validating tool arguments before a run
+- Running tools from scripts or background jobs without an LLM
+
+---
+
+## Related
+
+- [Core Concepts](../../getting-started/concepts) — `defineTool` reference.
+- [Error Handling](./error-handling) — `ToolError` on timeout or handler exception.
+- [Testing](../testing) — Testing tools in isolation with `executeTool` and `MockModel`.

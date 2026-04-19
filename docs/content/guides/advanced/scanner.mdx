@@ -1,0 +1,127 @@
+---
+id: scanner
+title: Scanner
+sidebar_label: Scanner
+description: Auto-discover tools and MCP servers from the filesystem using ToolScanner.
+---
+
+# Scanner
+
+`ToolScanner` discovers agent files and MCP server configs from the filesystem. Use it when you need to build tooling on top of scan results — a custom build step, a dev-server watcher, or a dynamic agent loader — rather than hard-coding file lists.
+
+```typescript
+import { ToolScanner } from "@etagents/sdk";
+
+// Scan a directory for agent files
+const result = await ToolScanner.scan("./src/agents");
+
+for (const agent of result.agents) {
+  console.log(agent.file); // absolute path to *.agent.ts or *.agent.js
+}
+```
+
+---
+
+## What it finds
+
+`ToolScanner` looks for two file types:
+
+| Pattern | Description | `ScanOptions` field |
+|---|---|---|
+| `*.agent.ts`, `*.agent.js` | Agent definition files | `agents: true` (default) |
+| `*.mcp.json` | MCP server config files | `mcp: false` (opt-in) |
+
+`node_modules` and dotfile directories (`.git`, `.next`, etc.) are always skipped.
+
+---
+
+## ScanOptions
+
+```typescript
+const result = await ToolScanner.scan("./src", {
+  agents: true,   // find *.agent.ts / *.agent.js (default: true)
+  mcp: true,      // also find *.mcp.json (default: false)
+});
+```
+
+**`ScanResult` shape:**
+
+```typescript
+interface ScanResult {
+  agents: ScannedAgent[];    // { file: string }  — absolute paths
+  mcpConfigs: ScannedMcp[];  // { file: string, serverName?: string, transport?: string }
+}
+```
+
+`ToolScanner.scan` throws synchronously if the target directory does not exist.
+
+---
+
+## Example: dynamic agent loader
+
+Load and run all agents found in a directory:
+
+```typescript
+import { ToolScanner, startRun } from "@etagents/sdk";
+import { pathToFileURL } from "node:url";
+
+const { agents } = await ToolScanner.scan("./src/agents");
+
+for (const { file } of agents) {
+  // Dynamic import via file URL (ESM)
+  const mod = await import(pathToFileURL(file).href);
+  if (mod.default) {
+    const result = await startRun(mod.default, "Hello");
+    console.log(`${file}: ${result.response}`);
+  }
+}
+```
+
+This pattern is used by `eta scan` and `eta orchestrate` internally.
+
+---
+
+## Example: watch for new agents
+
+Combine `ToolScanner` with `fs.watch` for a dev-server watcher:
+
+```typescript
+import { ToolScanner } from "@etagents/sdk";
+import { watch } from "node:fs";
+
+async function refreshAgents(dir: string) {
+  const { agents } = await ToolScanner.scan(dir);
+  console.log(`Found ${agents.length} agents`);
+  return agents;
+}
+
+const dir = "./src/agents";
+await refreshAgents(dir);
+
+watch(dir, { recursive: true }, async (_event, filename) => {
+  if (filename?.endsWith(".agent.ts") || filename?.endsWith(".agent.js")) {
+    await refreshAgents(dir);
+  }
+});
+```
+
+---
+
+## CLI shorthand
+
+The `eta scan` command is a thin wrapper over `ToolScanner.scan`:
+
+```bash
+eta scan ./src
+eta scan ./src --mcp   # also show *.mcp.json files
+```
+
+See the [CLI reference](../../cli) for details.
+
+---
+
+## Related
+
+- [CLI Reference](../../cli) — `eta scan`, `eta orchestrate`, and `eta serve`.
+- [Multi-Agent](./multi-agent) — `AgentRouter` for routing across discovered agents.
+- [Core Concepts](../../getting-started/concepts) — `AgentDef` and `startRun`.

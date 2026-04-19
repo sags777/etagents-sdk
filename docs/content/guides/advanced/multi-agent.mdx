@@ -1,0 +1,145 @@
+---
+id: multi-agent
+title: Multi-Agent Orchestration
+sidebar_label: Multi-Agent
+description: Build multi-agent systems with AgentRouter, RuleRouter, and TriageRouter.
+---
+
+# Multi-Agent Orchestration
+
+`AgentRouter` routes each message to the most appropriate agent from a pool. Use it to build specialist systems where different agents handle different domains \u2014 billing, support, research \u2014 without each agent needing to know about the others.
+
+```typescript
+import { createAgent, AgentRouter, RuleRouter } from "@etagents/sdk";
+
+const billingAgent = createAgent({
+  name: "billing",
+  systemPrompt: "You handle billing questions: invoices, payments, subscriptions.",
+  model: "claude-sonnet-4-6",
+});
+
+const supportAgent = createAgent({
+  name: "support",
+  systemPrompt: "You handle technical support: bugs, errors, outages.",
+  model: "claude-sonnet-4-6",
+});
+
+const generalAgent = createAgent({
+  name: "general",
+  systemPrompt: "You are a general-purpose assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+// Deterministic routing — no LLM call needed for the routing decision
+const strategy = new RuleRouter()
+  .when(/\b(invoice|billing|payment|subscription|charge)\b/i, billingAgent)
+  .when(/\b(bug|error|crash|broken|exception)\b/i, supportAgent)
+  .fallback(generalAgent)
+  .build();
+
+const router = AgentRouter.create()
+  .add(billingAgent)
+  .add(supportAgent)
+  .add(generalAgent)
+  .withStrategy(strategy)
+  .build();
+
+const result = await router.run("I was charged twice on my last invoice.");
+// Routes to billingAgent — billing keyword matched
+console.log(result.response);
+```
+
+---
+
+## RuleRouter
+
+`RuleRouter` evaluates rules in insertion order. The first matching rule wins with `confidence: 1`. If no rule matches and a `.fallback()` is set, the fallback agent is used with `confidence: 0.5`. Without a fallback, an unmatched message throws.
+
+```typescript
+const strategy = new RuleRouter()
+  .when(/\b(refund|chargeback)\b/i, billingAgent)  // checked first
+  .when(/\b(error|crash)\b/i, supportAgent)         // checked second
+  .fallback(generalAgent)                            // used when no rule matches
+  .build();
+```
+
+Rules accept:
+- A `RegExp` \u2014 matched against the full input string
+- A `string` \u2014 converted to a case-insensitive fixed-string regex
+
+**`RoutingDecision` shape:**
+
+```typescript
+interface RoutingDecision {
+  agentDef: AgentDef;
+  confidence: number;   // 1 for rule match, 0.5 for fallback
+  reason: string;       // e.g. "Rule matched: /invoice/i"
+}
+```
+
+---
+
+## TriageRouter
+
+`TriageRouter` makes a single LLM call to select the best agent. Use a fast, inexpensive model for the triage decision to keep costs low:
+
+```typescript
+import { AgentRouter, TriageRouter, AnthropicModel } from "@etagents/sdk";
+
+const triageModel = AnthropicModel.create({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+  model: "claude-haiku-4-5",   // cheap model for routing only
+});
+
+const strategy = new TriageRouter({
+  model: triageModel,
+  agents: [billingAgent, supportAgent, generalAgent],
+});
+
+const router = AgentRouter.create()
+  .add(billingAgent)
+  .add(supportAgent)
+  .add(generalAgent)
+  .withStrategy(strategy)
+  .build();
+
+const result = await router.run("Can I get a refund if I cancel mid-month?");
+// TriageRouter selects billingAgent based on LLM reasoning
+```
+
+`TriageRouter` gives each agent's `name` and `systemPrompt` to the model and asks it to pick the best match. The model's choice is returned as a `RoutingDecision` with a confidence score.
+
+| Strategy | Accuracy | Latency | Cost |
+|---|---|---|---|
+| `RuleRouter` | High for known patterns | Near-zero | None |
+| `TriageRouter` | High for ambiguous inputs | 1 extra LLM call | Triage model cost |
+
+Use `RuleRouter` when input patterns are predictable. Use `TriageRouter` when inputs are diverse and hard to classify with regex.
+
+---
+
+## AgentRouter builder API
+
+```typescript
+AgentRouter.create()
+  .add(agent)             // Register an agent in the pool
+  .withStrategy(strategy) // Set the routing strategy
+  .build()                // Validate and return the router
+```
+
+`router.run(input, config?)` routes the input, runs the selected agent, and returns a `RunResult`. The `config` is forwarded to `startRun` so you can pass `runId`, `signal`, `onEvent`, etc.
+
+---
+
+## Depth guard
+
+To prevent infinite delegation loops when agents are nested, the kernel tracks delegation depth. The default maximum depth is 5. Exceeding it throws an `AgentError` with code `"depth_exceeded"`.
+
+---
+
+## Related
+
+- [Core Concepts](../../getting-started/concepts) \u2014 `AgentDef` and `startRun`.
+- [HITL](./hitl) \u2014 Human-in-the-loop inside routed agents.
+- [Error Handling](./error-handling) \u2014 `AgentError` and routing failures.
+

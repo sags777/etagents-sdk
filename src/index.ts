@@ -177,3 +177,8 @@ export type { ExpressRequest, ExpressResponse, ExpressHandler } from "./http/ind
 
 export { McpClient } from "./mcp/index.js";
 export { McpServer } from "./mcp/index.js";
+
+// ── Scanner ────────────────────────────────────────────────────────
+
+export { ToolScanner } from "./scanner/index.js";
+export type { ScanResult, ScannedAgent, ScannedMcp, ScanOptions } from "./scanner/index.js";

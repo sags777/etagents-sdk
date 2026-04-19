@@ -31,6 +31,10 @@
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
+    "docs:install": "npm --prefix ./docs install",
+    "docs:start": "npm --prefix ./docs run start",
+    "docs:build": "npm --prefix ./docs run build",
+    "docs:check": "npm --prefix ./docs run check:sidebar && npm --prefix ./docs run check:links",
     "test": "vitest run",
     "test:watch": "vitest"
   },

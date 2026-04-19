@@ -974,7 +974,7 @@ const body = eventStream.resume(checkpointId, [
 return new Response(body, { headers: SSE_HEADERS });
 ```
 
-**SSE event names** (dot-notation, distinct from legacy `@agentgrid/builder-sdk`):
+**SSE event names** (dot-notation):
 
 | RunEvent kind | SSE event name | When |
 |---------------|---------------|------|
@@ -1328,6 +1328,25 @@ ANTHROPIC_API_KEY=sk-... npx tsx examples/01-basic-run.ts
 npm install
 ```
 
+### Docs workflow
+
+The documentation site lives in `docs/` inside this SDK package and is deployed separately on Vercel.
+
+Run docs from the SDK root:
+
+```bash
+npm run docs:install
+npm run docs:start
+npm run docs:build
+npm run docs:check
+```
+
+Contributor rule: if a change affects the public SDK surface, update the docs in the same PR.
+
+- Update docs for exported APIs, CLI behavior, config fields, examples, workflows, error semantics, and any user-visible behavior.
+- Update JSDoc for exported symbols so generated API reference can stay current once TypeDoc is enabled.
+- Skip docs-only changes for internal refactors that do not affect users.
+
 ### Services (Redis — optional)
 
 ```bash
@@ -1350,7 +1369,7 @@ Plain Redis will **not** work — `FT.CREATE` / `FT.SEARCH` require Redis Stack.
 
 ```bash
 npm run build        # Compile to dist/
-npm run typecheck    # Type-check without emitting
+npm run check        # Type-check without emitting
 ```
 
 ### Tests

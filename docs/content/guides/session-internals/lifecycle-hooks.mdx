@@ -1,0 +1,137 @@
+---
+id: lifecycle-hooks
+title: Lifecycle Hooks
+sidebar_label: Lifecycle Hooks
+description: Inject logic at key points in the run lifecycle with hooks.
+---
+
+# Lifecycle Hooks
+
+Lifecycle hooks let you inject logic at key moments in a run without modifying the kernel or your tools. Use them for telemetry, audit logging, message transformation, and debugging.
+
+```typescript
+import { createAgent } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  model: "claude-sonnet-4-6",
+  hooks: {
+    onTurnStart: async (turn) => {
+      console.log(`Turn ${turn}: sending to model`);
+    },
+    onToolCall: async (call) => {
+      await telemetry.record("tool_call", { name: call.name, args: call.args });
+    },
+    onToolResult: async (result) => {
+      await telemetry.record("tool_result", { id: result.toolCallId, error: result.isError });
+    },
+    beforeComplete: async (messages) => {
+      await auditLog.write(messages);
+    },
+  },
+});
+```
+
+All hooks are **fail-open**: if a hook throws, the error is logged and the run continues. Hooks can never crash a session.
+
+---
+
+## Available hooks
+
+| Hook | Signature | When |
+|---|---|---|
+| `onTurnStart` | `(turn: number) => void \| Promise<void>` | Before each LLM call |
+| `onTurnEnd` | `(turn: number) => void \| Promise<void>` | After each LLM response |
+| `onToolCall` | `(call: ToolCall) => void \| Promise<void>` | Before each tool executes |
+| `onToolResult` | `(result: ToolResult) => void \| Promise<void>` | After each tool returns |
+| `beforeComplete` | `(messages: Message[]) => void \| Promise<void>` | Just before the run returns |
+
+All hooks may be async. The kernel awaits each hook before continuing.
+
+---
+
+## onTurnStart / onTurnEnd
+
+Use these to instrument LLM call latency:
+
+```typescript
+const turnStartTimes = new Map<number, number>();
+
+const agent = createAgent({
+  ...,
+  hooks: {
+    onTurnStart: async (turn) => {
+      turnStartTimes.set(turn, Date.now());
+    },
+    onTurnEnd: async (turn) => {
+      const start = turnStartTimes.get(turn);
+      if (start) {
+        const latencyMs = Date.now() - start;
+        await metrics.record("llm_latency", { turn, latencyMs });
+      }
+    },
+  },
+});
+```
+
+---
+
+## onToolCall / onToolResult
+
+Use these to audit every tool invocation:
+
+```typescript
+hooks: {
+  onToolCall: async (call) => {
+    // call.name, call.args, call.id
+    console.log(`Calling ${call.name} with`, call.args);
+  },
+  onToolResult: async (result) => {
+    // result.toolCallId, result.result (string), result.isError, result.durationMs
+    if (result.isError) {
+      await alerting.trigger("tool_error", { id: result.toolCallId });
+    }
+  },
+},
+```
+
+---
+
+## beforeComplete
+
+`beforeComplete` receives the full `Message[]` array just before the run returns. Use it for final audit logging or message archiving:
+
+```typescript
+hooks: {
+  beforeComplete: async (messages) => {
+    // Full conversation including tool calls and results
+    await db.archiveConversation(runId, messages);
+  },
+},
+```
+
+:::note
+`beforeComplete` fires for every run exit status — `"complete"`, `"error"`, `"cancelled"`, and `"budget_exceeded"`. Check the `RunResult` status in your `onEvent` callback if you only want to act on successful completions.
+:::
+
+---
+
+## Hooks vs onEvent
+
+| | Hooks | `onEvent` |
+|---|---|---|
+| Defined on | `AgentConfig` (applies to all runs) | `RunConfig` (per-run) |
+| Error handling | Fail-open (never crashes) | Fail-open |
+| Transforms messages | Yes (`beforeComplete` receives `Message[]`) | No (read-only observation) |
+| Use for | Persistent telemetry, audit logging | Per-run UI updates, progress display |
+
+For simple per-run observation, prefer `onEvent`. Reserve hooks for cross-cutting concerns you want on every run using this agent.
+
+---
+
+## Related
+
+- [Streaming](../essentials/streaming) — `onEvent` for real-time per-run observation.
+- [Persistence](../essentials/persistence) — Session snapshots written after each run.
+- [Error Handling](../advanced/error-handling) — Error types surfaced in hooks and events.

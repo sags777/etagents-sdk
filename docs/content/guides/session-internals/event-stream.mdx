@@ -1,0 +1,193 @@
+---
+id: event-stream
+title: Event Stream
+sidebar_label: Event Stream
+description: Consume structured run events via SessionEventStream and SessionEventSource.
+---
+
+# Event Stream
+
+`SessionEventStream` wraps `startRun` into a `ReadableStream<Uint8Array>` of SSE-formatted messages. Use it to stream run events to browsers over HTTP without holding the connection open for the entire run.
+
+```typescript title="app/api/agent/route.ts"
+import { createAgent, SessionEventStream, SSE_HEADERS } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+const eventStream = new SessionEventStream(agent);
+
+export async function POST(req: Request) {
+  const { prompt } = await req.json() as { prompt: string };
+  const body = eventStream.stream(prompt);
+  return new Response(body, { headers: SSE_HEADERS });
+}
+```
+
+The client receives a stream of SSE events. Each event maps to a `RunEvent` kind. The connection closes when the run exits.
+
+---
+
+## SSE event names
+
+SSE event names use dot-notation and differ from the `RunEvent.kind` strings:
+
+| `RunEvent.kind` | SSE event name | When |
+|---|---|---|
+| `turn_start`, `turn_end`, `warning`, `exceeded` | `run.status` | Turn lifecycle + budget |
+| `tool_call` | `tool.invoke` | Before each tool executes |
+| `tool_result` | `tool.result` | After each tool returns |
+| `error` | `run.error` | Non-fatal error |
+| `complete` | `run.done` | Run exits (any status) |
+
+Each event's `data` is a JSON-serialised `RunEvent` object.
+
+---
+
+## Next.js App Router
+
+Use `toNextHandler` to create a route handler from an agent. It reads the prompt from the request body and resolves per-request config via `resolveConfig`:
+
+```typescript title="app/api/agent/route.ts"
+import { createAgent, toNextHandler } from "@etagents/sdk";
+import type { NextRouteRequest } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+export const POST = toNextHandler(agent, {
+  resolveConfig: (req: NextRouteRequest) => ({
+    runId: req.headers.get("x-session-id") ?? undefined,
+    maxTurns: 20,
+  }),
+});
+```
+
+The handler expects a JSON body with a `prompt` field and streams the response as SSE. For tree-shaking, import from `@etagents/sdk/next`.
+
+---
+
+## Express
+
+```typescript title="server.ts"
+import express from "express";
+import { createAgent, toExpressHandler } from "@etagents/sdk";
+
+const app = express();
+app.use(express.json());
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  model: "claude-sonnet-4-6",
+});
+
+app.post("/api/agent", toExpressHandler(agent, {
+  resolveConfig: (req) => ({
+    runId: req.headers["x-session-id"] as string | undefined,
+  }),
+}));
+
+app.listen(3000);
+```
+
+For tree-shaking, import from `@etagents/sdk/express`.
+
+---
+
+## HITL resume
+
+To resume a suspended HITL run, call `eventStream.resume` instead of `eventStream.stream`:
+
+```typescript title="app/api/agent/resume/route.ts"
+import { createAgent, SessionEventStream, SSE_HEADERS } from "@etagents/sdk";
+import type { ApprovalDecision } from "@etagents/sdk";
+
+const agent = createAgent({ ... });
+const eventStream = new SessionEventStream(agent);
+
+export async function POST(req: Request) {
+  const { checkpointId, decisions } = await req.json() as {
+    checkpointId: string;
+    decisions: ApprovalDecision[];
+  };
+
+  const body = eventStream.resume(checkpointId, decisions);
+  return new Response(body, { headers: SSE_HEADERS });
+}
+```
+
+See the [HITL guide](../advanced/hitl) for the full suspend/resume flow.
+
+---
+
+## SessionEventSource (client)
+
+`SessionEventSource` is the typed browser/Node client that consumes the SSE stream from your server endpoint.
+
+```typescript
+import { SessionEventSource } from "@etagents/sdk";
+
+const source = new SessionEventSource("/api/agent", {
+  body: { prompt: "What is the capital of France?" },
+});
+
+// Listen to specific event types
+source.on("tool.invoke", (event) => {
+  console.log("Calling tool:", event.toolCall.name);
+});
+
+source.on("run.done", (event) => {
+  if (event.kind === "complete") {
+    console.log("Response:", event.result.response);
+  }
+});
+
+// Await the full RunResult
+const result = await source.result;
+console.log(result.status);
+```
+
+**`SessionEventSource` API:**
+
+| Method / Property | Description |
+|---|---|
+| `source.on(eventName, handler)` | Subscribe to a specific SSE event type |
+| `await source.result` | Await the final `RunResult` |
+| `source.abort()` | Cancel the SSE connection |
+| `source.readyState` | `"connecting"` \| `"open"` \| `"closed"` |
+
+---
+
+## Async iteration
+
+`SessionEventSource` supports async iteration for sequential event processing:
+
+```typescript
+for await (const event of source) {
+  // event is typed as RunEvent
+  if (event.kind === "tool_call") {
+    console.log("Tool:", event.toolCall.name);
+  }
+}
+```
+
+---
+
+## Cancellation on disconnect
+
+When the client disconnects (browser tab closed, network drop), `SessionEventStream` detects the closed stream and cancels the underlying run via `AbortSignal`. No cleanup code required.
+
+---
+
+## Related
+
+- [Streaming](../essentials/streaming) — `onEvent` callback for in-process event observation.
+- [HITL](../advanced/hitl) — Suspend/resume via `eventStream.resume`.
+- [Cancellation](../essentials/cancellation) — `AbortSignal` and how cancellation propagates.

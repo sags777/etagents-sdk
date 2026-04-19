@@ -1,0 +1,180 @@
+---
+id: persistence
+title: Persistence
+sidebar_label: Persistence
+description: Persist and resume runs across processes using FileStore or RedisStore.
+---
+
+# Persistence
+
+Persistence lets you save conversation history between runs. Attach a `StoreProvider` and pass a `runId` — the kernel loads previous messages automatically on every subsequent call.
+
+```typescript
+import { createAgent, startRun, FileStore } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+  store: new FileStore({ dir: ".sessions" }),
+});
+
+// First run — stored under "user-alice"
+await startRun(agent, "My name is Alice.", { runId: "user-alice" });
+
+// Later run — full history rehydrated automatically
+const result = await startRun(agent, "What is my name?", { runId: "user-alice" });
+console.log(result.response); // "Your name is Alice."
+```
+
+Without `runId`, every call starts a fresh session. With `runId`, the kernel loads the snapshot, appends the new messages, runs, then writes the updated snapshot back.
+
+---
+
+## FileStore
+
+`FileStore` writes one JSON file per session to a local directory. No external dependencies required.
+
+```typescript
+import { FileStore } from "@etagents/sdk";
+
+const store = new FileStore({ dir: ".sessions" });
+```
+
+Each file is named `<runId>.json`. You can read, back up, or delete session files directly. Use `FileStore` for:
+- Local development
+- Single-process deployments
+- Testing
+
+:::warning
+`FileStore` is not safe for concurrent access to the same `runId` from multiple processes. Use `RedisStore` for multi-instance deployments.
+:::
+
+---
+
+## RedisStore
+
+`RedisStore` stores sessions in Redis. Use this for multi-instance deployments, serverless environments, or anywhere you need TTL-based expiry.
+
+```typescript
+import { RedisStore } from "@etagents/sdk";
+import { createClient } from "redis";
+
+const redis = createClient({ url: process.env.REDIS_URL });
+await redis.connect();
+
+const store = new RedisStore({
+  redis,
+  keyPrefix: "eta:",     // optional — default is "eta:"
+  ttlSeconds: 86_400,    // optional — expire sessions after 24 hours
+});
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  store,
+});
+```
+
+`RedisStore` requires a connected `redis` client. The `keyPrefix` isolates etagents keys from other data in the same Redis instance.
+
+---
+
+## Session snapshot format
+
+The kernel reads and writes a `SessionSnapshot` on each run:
+
+```typescript
+interface SessionSnapshot {
+  version: 1;
+  runId: string;
+  messages: Message[];                  // full conversation history
+  metadata: Record<string, unknown>;    // arbitrary key-value from RunConfig.metadata
+  createdAt: string;                    // ISO-8601
+  updatedAt: string;
+  __eta: {};                            // reserved for kernel use — do not write to this
+}
+```
+
+You can read snapshots directly from `FileStore` for inspection or migration:
+
+```typescript
+const store = new FileStore({ dir: ".sessions" });
+const snapshot = await store.read<SessionSnapshot>("user-alice");
+console.log(snapshot?.messages.length); // number of messages in history
+```
+
+---
+
+## Metadata
+
+Attach arbitrary metadata to a session via `RunConfig.metadata`. It is persisted with the snapshot and available on reload:
+
+```typescript
+await startRun(agent, "Hello", {
+  runId: "u_123",
+  metadata: { userId: "u_123", tier: "pro", source: "web" },
+});
+
+// The metadata is written to the snapshot and available via store.read()
+```
+
+---
+
+## Message trimming
+
+Long sessions can exceed the model's context window. The kernel trims message history using these `AgentConfig` fields:
+
+| Field | Default | Description |
+|---|---|---|
+| `maxPersistedMessages` | unlimited | Hard cap on messages stored per snapshot |
+| `maxToolContentLength` | unlimited | Truncate tool result content to this length |
+
+```typescript
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  store: new FileStore({ dir: ".sessions" }),
+  maxPersistedMessages: 100,       // keep last 100 messages
+  maxToolContentLength: 4_096,     // truncate large tool results
+});
+```
+
+Message trimming always preserves the most recent messages. The system prompt is never trimmed.
+
+---
+
+## HITL checkpoints
+
+When HITL is enabled, the kernel writes a `SuspendSnapshot` checkpoint — a separate record from the session snapshot. HITL checkpoints require a `hitlStore` on the `HitlConfig`:
+
+```typescript
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "...",
+  store: new FileStore({ dir: ".sessions" }),         // session history
+  hitl: {
+    mode: "sensitive",
+    hitlStore: new RedisStore({ url: process.env.REDIS_URL }), // HITL checkpoints
+    timeoutMs: 300_000,  // 5 min before checkpoint expires
+  },
+});
+```
+
+See the [HITL guide](../advanced/hitl) for the full suspend/resume flow.
+
+---
+
+## Error handling
+
+Persistence failures are best-effort. If `store.write()` throws, the error is logged but the run still returns its `RunResult`. A failed persist does not crash the session.
+
+If `store.read()` fails on startup (e.g. corrupt snapshot), the run starts fresh with an empty history.
+
+---
+
+## Related
+
+- [HITL](../advanced/hitl) — Human-in-the-loop suspend/resume, which also uses the store.
+- [Core Concepts](../../getting-started/concepts) — The full `AgentConfig` reference.
+- [Testing](../testing) — Use `FileStore` in integration tests with a temp directory.

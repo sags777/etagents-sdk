@@ -1,0 +1,116 @@
+---
+id: cancellation
+title: Cancellation
+sidebar_label: Cancellation
+description: Cancel a run mid-flight using AbortSignal.
+---
+
+# Cancellation
+
+Cancellation lets you stop a run early using a standard `AbortSignal`. The signal is checked before every LLM turn and threaded through to the model's HTTP connection so the network request closes immediately.
+
+```typescript
+import { createAgent, startRun } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+const controller = new AbortController();
+
+// Cancel after 10 seconds
+const timer = setTimeout(() => controller.abort(), 10_000);
+
+const result = await startRun(agent, "Analyse this large report...", {
+  signal: controller.signal,
+});
+
+clearTimeout(timer);
+
+if (result.status === "cancelled") {
+  console.log(`Run cancelled after ${result.turns} turns`);
+}
+```
+
+When the signal fires, the current LLM call is aborted and the run exits with `status: "cancelled"`. Tool calls already in-flight will complete — only the next LLM turn is prevented.
+
+---
+
+## When cancellation takes effect
+
+The signal is checked at two points in the turn loop:
+
+1. **Before each LLM call** — if already aborted, the run exits without making a network request.
+2. **During the LLM stream** — the signal is passed to the model's `stream()` call, so the HTTP connection closes mid-stream.
+
+Tool calls that have already started are not interrupted. If the agent is executing tools in parallel and the signal fires, all running tools complete. The abort takes effect at the next LLM turn.
+
+---
+
+## User-triggered cancellation
+
+In a web application, wire the signal to a cancel button:
+
+```typescript title="app/api/agent/route.ts"
+let controller: AbortController | null = null;
+
+export async function POST(req: Request) {
+  controller = new AbortController();
+  const { prompt } = await req.json() as { prompt: string };
+
+  const result = await startRun(agent, prompt, {
+    signal: controller.signal,
+  });
+
+  return Response.json(result);
+}
+
+export async function DELETE() {
+  controller?.abort();
+  return new Response(null, { status: 204 });
+}
+```
+
+For SSE-based streaming, cancellation is handled automatically by `SessionEventStream` when the client disconnects. See the [Event Stream guide](../session-internals/event-stream).
+
+---
+
+## Handling the cancelled result
+
+```typescript
+const result = await startRun(agent, input, { signal });
+
+switch (result.status) {
+  case "complete":
+    return result.response;
+  case "cancelled":
+    // Partial work — inspect result.toolCalls and result.messages
+    return "The task was cancelled before completion.";
+  case "error":
+    throw new Error(result.response || "Agent error");
+}
+```
+
+A cancelled run still returns a full `RunResult` — `toolCalls`, `messages`, `turns`, and `totalUsage` all reflect work completed before cancellation.
+
+---
+
+## Node.js timeout shorthand
+
+`AbortSignal.timeout(ms)` is available in Node.js 18+:
+
+```typescript
+const result = await startRun(agent, input, {
+  signal: AbortSignal.timeout(10_000),  // cancel after 10 seconds
+});
+```
+
+---
+
+## Related
+
+- [Token Budget](./token-budget) — Stop a run when a token limit is reached rather than on a timer.
+- [Event Stream](../session-internals/event-stream) — SSE streaming with automatic cancellation on client disconnect.
+- [Streaming](./streaming) — The `onEvent` callback — no cancellation events are emitted; the run simply stops.

@@ -1,0 +1,153 @@
+---
+id: streaming
+title: Streaming
+sidebar_label: Streaming
+description: Subscribe to real-time RunEvents from your agent using the onEvent callback.
+---
+
+# Streaming
+
+`onEvent` gives you a real-time window into everything the agent does — every LLM turn, every tool call, and the final result. Use it to build streaming UIs, log telemetry, or display progress to users.
+
+```typescript
+import { createAgent, startRun } from "@etagents/sdk";
+import type { RunEvent } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You are a helpful assistant.",
+  model: "claude-sonnet-4-6",
+});
+
+const result = await startRun(agent, "List three famous landmarks in Paris.", {
+  onEvent(event: RunEvent) {
+    switch (event.kind) {
+      case "turn_start":
+        console.log(`Turn ${event.turn}: LLM call starting`);
+        break;
+      case "tool_call":
+        console.log(`Calling tool: ${event.toolCall.name}`);
+        break;
+      case "tool_result":
+        console.log(`Tool returned in ${event.durationMs}ms`);
+        break;
+      case "complete":
+        console.log("Done:", event.result.status);
+        break;
+    }
+  },
+});
+
+console.log(result.response);
+```
+
+`onEvent` fires synchronously on every event. `startRun` still returns a `RunResult` when the run completes — `onEvent` is an observation mechanism, not a replacement for the return value.
+
+---
+
+## RunEvent types
+
+All events are discriminated on `kind`. TypeScript narrows the type correctly inside a `switch`:
+
+| `kind` | When | Key fields |
+|---|---|---|
+| `turn_start` | Before each LLM call | `turn: number` |
+| `turn_end` | After each LLM response | `turn: number`, `usage: TokenUsage` |
+| `tool_call` | Before each tool executes | `toolCall: { name, args, id }`, `agentName` |
+| `tool_result` | After each tool returns | `toolCallId`, `result`, `isError: boolean`, `durationMs` |
+| `warning` | Budget warning threshold crossed | `message`, `usage` |
+| `exceeded` | Token budget hit | `usage` |
+| `error` | Non-fatal error | `message`, `code` |
+| `complete` | Run exits (any status) | `result: RunResult` |
+
+### turn_start / turn_end
+
+```typescript
+case "turn_start":
+  console.log(`Turn ${event.turn} — sending messages to model`);
+  break;
+case "turn_end":
+  console.log(`Turn ${event.turn} — used ${event.usage.total} tokens`);
+  break;
+```
+
+### tool_call / tool_result
+
+```typescript
+case "tool_call":
+  console.log(`→ ${event.toolCall.name}`, JSON.stringify(event.toolCall.args));
+  break;
+case "tool_result":
+  if (event.isError) {
+    console.error(`← ${event.toolCallId} FAILED`);
+  } else {
+    console.log(`← ${event.toolCallId} OK (${event.durationMs}ms)`);
+  }
+  break;
+```
+
+### budget warning
+
+The `warning` event fires when cumulative token usage crosses `budget.warnAtPercent` of `maxTokens`. Use it to give users early notice before the run stops.
+
+```typescript
+const result = await startRun(agent, input, {
+  maxTokens: 10_000,
+  budget: { warnAtPercent: 80 }, // warning fires at 8 000 tokens
+  onEvent(event) {
+    if (event.kind === "warning") {
+      console.warn(`Token budget at ${event.usage.total} / 10 000`);
+    }
+    if (event.kind === "exceeded") {
+      console.error("Budget exceeded — run stopped");
+    }
+  },
+});
+```
+
+### error
+
+`error` events are non-fatal. The run continues unless the error causes a terminal exit.
+
+```typescript
+case "error":
+  console.error(`[${event.code}] ${event.message}`);
+  break;
+```
+
+---
+
+## Collecting all events
+
+If you need to replay or audit the event sequence, collect them into an array:
+
+```typescript
+const events: RunEvent[] = [];
+
+const result = await startRun(agent, input, {
+  onEvent: (event) => events.push(event),
+});
+
+const toolCalls = events.filter((e) => e.kind === "tool_call");
+console.log("Tool calls:", toolCalls.map((e) => e.toolCall.name));
+```
+
+---
+
+## SSE streaming over HTTP
+
+For streaming to a browser or API client, wrap the run in a `SessionEventStream` and use the framework adapters. See the [Event Stream guide](../session-internals/event-stream) for `toNextHandler`, `toExpressHandler`, and `SessionEventSource`.
+
+---
+
+## Error handling
+
+`onEvent` is synchronous — if your callback throws, the error is caught and logged, but the run continues. Do not rely on `onEvent` for critical side effects that must succeed. Use [lifecycle hooks](../session-internals/lifecycle-hooks) for that.
+
+---
+
+## Related
+
+- [Event Stream](../session-internals/event-stream) — SSE streaming to browsers with `SessionEventStream`.
+- [Lifecycle Hooks](../session-internals/lifecycle-hooks) — Fail-safe callbacks that can transform messages.
+- [Token Budget](./token-budget) — Control token limits and budget warnings.

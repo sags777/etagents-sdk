@@ -1,0 +1,123 @@
+---
+id: token-budget
+title: Token Budget
+sidebar_label: Token Budget
+description: Enforce a token spend ceiling per run with maxTokens.
+---
+
+# Token Budget
+
+Token budget enforcement limits how many tokens a run can consume. Set `maxTokens` to protect against runaway agents or unexpectedly long tasks.
+
+```typescript
+import { createAgent, startRun } from "@etagents/sdk";
+
+const agent = createAgent({
+  name: "analyst",
+  systemPrompt: "You are a data analyst.",
+  model: "claude-sonnet-4-6",
+  maxTokens: 10_000,   // hard cap for this agent
+});
+
+const result = await startRun(agent, "Analyse this large dataset...");
+
+if (result.status === "budget_exceeded") {
+  console.log(`Stopped at turn ${result.turns}`);
+  console.log(`Used: ${result.totalUsage?.total} tokens`);
+}
+```
+
+The `BudgetLedger` accumulates `prompt + completion` tokens after each turn. When the running total crosses `maxTokens`, the run exits immediately with `status: "budget_exceeded"`.
+
+---
+
+## How it works
+
+After each LLM turn, the kernel calls `BudgetLedger.checkAndEmit()`:
+
+1. Adds the turn's `prompt + completion` tokens to the running total.
+2. If `warnAtPercent` threshold is crossed, emits a `warning` event.
+3. If total exceeds `maxTokens`, emits an `exceeded` event and sets `status: "budget_exceeded"`.
+4. The turn loop exits.
+
+Tool execution is not counted — only LLM tokens.
+
+---
+
+## Budget warning
+
+Set `budget.warnAtPercent` to receive early notice before the hard cap hits. The `warning` event fires once when the threshold is first crossed.
+
+```typescript
+const result = await startRun(agent, input, {
+  maxTokens: 10_000,
+  budget: { warnAtPercent: 80 },  // warning fires at 8 000 tokens
+  onEvent(event) {
+    if (event.kind === "warning") {
+      console.warn(`Approaching limit: ${event.usage.total} / 10 000 tokens used`);
+    }
+    if (event.kind === "exceeded") {
+      console.error("Budget exceeded — run stopped early");
+    }
+  },
+});
+```
+
+---
+
+## Per-run override
+
+`maxTokens` in `RunConfig` overrides `AgentConfig.maxTokens` for a single run:
+
+```typescript
+// Agent default: 8 192 tokens
+const agent = createAgent({ maxTokens: 8_192, ... });
+
+// Give this specific run more headroom
+const result = await startRun(agent, "Summarise this 50-page document", {
+  maxTokens: 50_000,
+});
+```
+
+---
+
+## Handling budget_exceeded
+
+```typescript
+const result = await startRun(agent, input, { maxTokens: 5_000 });
+
+switch (result.status) {
+  case "complete":
+    console.log(result.response);
+    break;
+  case "budget_exceeded":
+    // toolCalls and messages reflect partial work completed before the stop
+    console.log(`Partial result — completed ${result.turns} turns`);
+    console.log(`Tool calls attempted: ${result.toolCalls.length}`);
+    break;
+}
+```
+
+:::tip
+For long tasks that may hit the budget, use `onEvent` with `warning` to save intermediate results before the hard stop.
+:::
+
+---
+
+## Choosing a maxTokens value
+
+| Use case | Suggested maxTokens |
+|---|---|
+| Single Q&A (no tools) | 2 000 – 4 000 |
+| Tool-heavy research task | 16 000 – 32 000 |
+| Long document analysis | 50 000 – 100 000 |
+
+The SDK default is `8 192`. For production agents with tools, `16 000` to `32 000` is a common starting point.
+
+---
+
+## Related
+
+- [Streaming](./streaming) — `warning` and `exceeded` event types in the `onEvent` callback.
+- [Cancellation](./cancellation) — Stop a run early with `AbortSignal` instead of waiting for the budget.
+- [Core Concepts](../../getting-started/concepts) — The full `AgentConfig` and `RunConfig` references.

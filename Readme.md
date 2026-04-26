@@ -20,7 +20,9 @@
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
   - [createAgent](#createagent)
+  - [cloneAgent](#cloneagent)
   - [defineTool](#definetool)
+  - [agentAsTool + agentToManifest](#agentastool--agenttomanifest)
   - [startRun](#startrun)
 - [Provider Slots](#provider-slots)
   - [Model](#model-provider)
@@ -42,7 +44,7 @@
   - [Cancellation](#cancellation)
 - [Persistence](#persistence)
 - [Human-in-the-Loop (HITL)](#human-in-the-loop-hitl)
-  - [Modes: none / tool / sensitive](#modes-none--tool--sensitive)
+  - [Modes: none / tool / sensitive / callback](#modes-none--tool--sensitive--callback)
   - [Suspend and resume](#suspend-and-resume)
 - [Memory](#memory)
 - [Privacy](#privacy)
@@ -113,7 +115,7 @@ console.log(result.turns);    // 1
 `createAgent(config: AgentConfig): AgentDef` validates your configuration, resolves string model shorthands to a `ModelProvider`, fills missing provider slots with defaults, and returns a frozen `AgentDef` handle. Pass the `AgentDef` to `startRun` — never construct it directly.
 
 ```typescript
-import { createAgent, AnthropicModel, FileStore, RegexPrivacy } from "@etagents/sdk";
+import { createAgent, AnthropicModel } from "@etagents/sdk";
 
 const agent = createAgent({
   name: "my-agent",
@@ -136,9 +138,11 @@ const agent = createAgent({
 |-------|------|---------|-------------|
 | `name` | `string` | required | Agent identifier |
 | `systemPrompt` | `string` | required | Base system prompt |
+| `description` | `string` | unset | Human-readable description for catalogs and inspect output |
+| `version` | `string` | unset | Agent version metadata |
 | `model` | `ModelProvider \| string` | `"claude-sonnet-4-6"` | LLM backend |
 | `memory` | `MemoryProvider` | no memory | Semantic retrieval |
-| `store` | `StoreProvider` | `FileStore` | Session persistence |
+| `store` | `StoreProvider` | no-op store | Session persistence when you opt in |
 | `privacy` | `PrivacyProvider` | no masking | PII gate |
 | `tools` | `ToolDef[]` | `[]` | Callable tools |
 | `mcp` | `McpServerConfig[]` | `[]` | MCP servers to connect |
@@ -147,6 +151,25 @@ const agent = createAgent({
 | `hooks` | `LifecycleHooks` | no-op hooks | Turn/tool lifecycle callbacks |
 | `maxTurns` | `number` | `20` | Hard turn cap |
 | `maxTokens` | `number` | `8192` | Token budget per run |
+
+### cloneAgent
+
+`cloneAgent(base, overrides?)` derives a new frozen `AgentDef` from an existing one while preserving all resolved providers unless you explicitly replace them.
+
+```typescript
+import { cloneAgent, createAgent } from "@etagents/sdk";
+
+const baseAgent = createAgent({
+  name: "support",
+  systemPrompt: "You handle customer support issues.",
+  model: "claude-sonnet-4-6",
+});
+
+const fastAgent = cloneAgent(baseAgent, {
+  name: "support-fast",
+  model: "claude-haiku-4-5",
+});
+```
 
 ### defineTool
 
@@ -182,6 +205,28 @@ const searchDatabase = defineTool({
 | `sequential` | `boolean?` | If `true`, never runs concurrently with other tool calls |
 | `timeoutMs` | `number?` | Per-tool timeout; overrides session `toolTimeoutMs` |
 
+### agentAsTool + agentToManifest
+
+Use `agentAsTool()` to expose one `AgentDef` as a tool for another, and `agentToManifest()` to snapshot the agent's public surface for registries, dashboards, or CLI output.
+
+```typescript
+import { agentAsTool, agentToManifest, createAgent } from "@etagents/sdk";
+
+const researchAgent = createAgent({
+  name: "research",
+  systemPrompt: "You gather evidence and cite concrete facts.",
+});
+
+const coordinator = createAgent({
+  name: "coordinator",
+  systemPrompt: "You delegate to specialists when needed.",
+  tools: [agentAsTool(researchAgent, { description: "Delegate research tasks." })],
+});
+
+const manifest = agentToManifest(coordinator);
+console.log(manifest.tools.map((tool) => tool.name));
+```
+
 ### startRun
 
 `startRun(agent, input, config?)` runs the agent to completion and returns a `RunResult`. The kernel loop continues until the LLM produces a final response with no tool calls, the turn cap is hit, the token budget is exceeded, a HITL suspension triggers, or an abort signal fires.
@@ -213,7 +258,7 @@ Four slots in `AgentConfig` are swappable. Everything else is kernel-internal an
 |------|-----------|---------|---------------|
 | `model` | `ModelProvider` | `AnthropicModel` (`claude-sonnet-4-6`) | Anthropic → OpenAI → local Ollama → custom |
 | `memory` | `MemoryProvider` | no-op (no memory) | Our Redis → SuperMemory → MemPalace → custom |
-| `store` | `StoreProvider` | `FileStore` | File → Redis → Postgres → custom |
+| `store` | `StoreProvider` | no-op (no persistence) | File → Redis → Postgres → custom |
 | `privacy` | `PrivacyProvider` | no-op (no masking) | Regex → NER model → enterprise PII engine |
 
 ### Model Provider
@@ -276,14 +321,16 @@ import { InMemory, RedisMemory } from "@etagents/sdk";
 // Best for local dev, unit tests, and low-volume deployments
 const mem = new InMemory();
 
-// RedisMemory — Redis Stack (with RediSearch) + OpenAI embeddings
+// RedisMemory — Redis Stack (with RediSearch) + your embedder implementation
 // For cross-session recall in production
-const mem = new RedisMemory({
-  redis: redisClient,
-  embedder: openAIEmbedder,
-  indexName: "eta:memory",        // default
-  ttlSeconds: 604_800,            // 7 days
-  minScore: 0.7,                  // matches DEFAULT_CONFIG.memoryMinScore
+const redisMem = await RedisMemory.connect({
+  url: process.env.REDIS_URL,
+  namespace: "assistant",
+  vectorDim: 1536,
+  embedder: {
+    embed: async (text) => embedWithOpenAI(text),
+  },
+  ttlDays: 7,
 });
 ```
 
@@ -292,15 +339,21 @@ const mem = new RedisMemory({
 Key-value persistence for session snapshots and HITL checkpoints.
 
 ```typescript
-import { FileStore, RedisStore } from "@etagents/sdk";
+import { FileStore, RedisStore, createRedisStore } from "@etagents/sdk";
 
-// FileStore — JSON files in a directory; default when no store is configured
-const store = new FileStore({ dir: ".sessions" });
+// FileStore — JSON files in a directory for explicit local persistence
+const fileStore = new FileStore(".sessions");
 
-// RedisStore — distributed; use in multi-instance deployments
-const store = new RedisStore({
+// RedisStore — explicit async connection for long-lived processes
+const redisStore = await RedisStore.connect({
   url: process.env.REDIS_URL,
-  keyPrefix: "eta:",              // optional
+  namespace: "app",
+});
+
+// createRedisStore — lazy sync factory for module-level singletons
+const lazyStore = createRedisStore({
+  url: process.env.REDIS_URL,
+  namespace: "app",
 });
 ```
 
@@ -309,20 +362,21 @@ const store = new RedisStore({
 PII masking applied before every LLM call. The `PrivacyFence` in the kernel accumulates the replacement map across turns — tool handlers always receive the original unmasked values.
 
 ```typescript
-import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
+import { RegexPrivacy, BUILTIN_RULES, createPrivacy } from "@etagents/sdk";
 
-const privacy = new RegexPrivacy({
-  rules: [
-    BUILTIN_RULES.email,        // bob@acme.com  → ⟨eta:email:0001⟩
-    BUILTIN_RULES.phone,        // (555) 123-4567 → ⟨eta:phone:0001⟩
-    BUILTIN_RULES.ssn,          // 123-45-6789 → ⟨eta:ssn:0001⟩
-    BUILTIN_RULES.creditCard,   // 4111-1111-1111-1111 → ⟨eta:cc:0001⟩
-    BUILTIN_RULES.ipv4,         // 192.168.1.1 → ⟨eta:ip:0001⟩
-  ],
-  customRules: [
-    { pattern: /ACCT-\d{8}/g, label: "account" },
-  ],
-});
+const privacy = new RegexPrivacy([
+  BUILTIN_RULES.email,        // bob@acme.com  → ⟨eta:EMAIL:0001⟩
+  BUILTIN_RULES.phone,        // (555) 123-4567 → ⟨eta:PHONE:0001⟩
+  BUILTIN_RULES.ssn,          // 123-45-6789 → ⟨eta:SSN:0001⟩
+  BUILTIN_RULES.creditCard,   // 4111-1111-1111-1111 → ⟨eta:CREDIT_CARD:0001⟩
+  BUILTIN_RULES.ipAddress,    // 192.168.1.1 → ⟨eta:IP_ADDRESS:0001⟩
+  { name: "account", category: "account", pattern: /ACCT-\d{8}/g },
+]);
+
+const shorthandPrivacy = createPrivacy(
+  { email: true, phone: true, creditCard: true },
+  { passphrase: process.env.PRIVACY_KEY },
+);
 ```
 
 Placeholder format: `⟨eta:<label>:<4-hex-id>⟩` — unambiguously distinct from any user-generated text.
@@ -396,8 +450,9 @@ const sendEmail = defineTool({
   description: "Sends an email on behalf of the user",
   params: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
   handler: async ({ to, subject, body }) => { /* ... */ },
-  // sensitive flag read by the kernel's HITL check
 });
+
+sendEmail.sensitive = true;
 ```
 
 See [Human-in-the-Loop (HITL)](#human-in-the-loop-hitl) for the full suspend/resume flow.
@@ -464,6 +519,9 @@ const result = await startRun(agent, "Analyse Q4 sales", {
 | `turns` | `number` | LLM turns consumed |
 | `status` | `RunStatus` | `"complete"` · `"error"` · `"cancelled"` · `"budget_exceeded"` · `"awaiting_approval"` |
 | `totalUsage` | `TokenUsage?` | `{ prompt, completion, total }` across all turns |
+| `checkpointId` | `string?` | Present when `status === "awaiting_approval"` |
+| `pendingApprovals` | `PendingApproval[]?` | Approval payloads for suspended HITL runs |
+| `agentResults` | `Record<string, RunResult>?` | Per-agent results returned by `AgentRouter.run()` |
 
 ### RunEvent Stream
 
@@ -479,11 +537,23 @@ const result = await startRun(agent, input, {
       case "turn_end":
         console.log(`Turn ${event.turn} used`, event.usage.total, "tokens");
         break;
+      case "text_delta":
+        process.stdout.write(event.delta);
+        break;
+      case "text_done":
+        console.log("\nTurn text complete:", event.text);
+        break;
       case "tool_call":
         console.log(`→ ${event.toolCall.name}`, event.toolCall.args);
         break;
       case "tool_result":
         console.log(`← ${event.toolCallId}`, event.result, `(${event.durationMs}ms)`);
+        break;
+      case "agent_routed":
+        console.log(`Routed to ${event.agentName}:`, event.reason);
+        break;
+      case "agent_complete":
+        console.log(`Agent ${event.agentName} finished with`, event.result.status);
         break;
       case "error":
         console.error(event.code, event.message);
@@ -500,33 +570,38 @@ const result = await startRun(agent, input, {
 |-----------|--------|------|
 | `turn_start` | `turn` | Before each LLM call |
 | `turn_end` | `turn`, `usage` | After each LLM response |
+| `text_delta` | `delta`, `turn` | Incremental text chunks during a turn |
+| `text_done` | `text`, `turn` | Full emitted text for the turn |
 | `tool_call` | `toolCall`, `agentName` | Before each tool execution |
 | `tool_result` | `toolCallId`, `result`, `isError`, `durationMs` | After each tool returns |
+| `warning`, `exceeded` | `state` | Budget warning and budget limit events |
+| `agent_routed` | `agentName`, `confidence`, `reason` | Emitted by `AgentRouter` before sub-runs start |
+| `agent_complete` | `agentName`, `result` | Emitted by `AgentRouter` when a sub-run ends |
 | `error` | `message`, `code` | On any non-fatal error |
 | `complete` | `result` | When the run exits |
 
 ### Lifecycle Hooks
 
-Four insertion points that can observe or transform run data. All hooks are **fail-open** — errors are swallowed via `safeHook()` and never crash the session.
+Five insertion points that can observe run data. All hooks are **fail-open** — errors are swallowed via `safeHook()` and never crash the session.
 
 ```typescript
 const agent = createAgent({
   name: "my-agent",
   systemPrompt: "...",
   hooks: {
-    onTurnStart: async (turn) => {
+    onTurnStart: async (turn, context) => {
       console.log(`Turn ${turn} beginning`);
     },
-    onTurnEnd: async (turn) => {
+    onTurnEnd: async (turn, context) => {
       console.log(`Turn ${turn} complete`);
     },
-    onToolCall: async (call) => {
-      await telemetry.record("tool_call", { tool: call.name, args: call.args });
+    onToolCall: async (call, context) => {
+      await telemetry.record("tool_call", { tool: call.name, runId: context.runId });
     },
-    onToolResult: async (result) => {
+    onToolResult: async (result, context) => {
       await telemetry.record("tool_result", { id: result.toolCallId, error: result.isError });
     },
-    beforeComplete: async (messages) => {
+    beforeComplete: async (messages, context) => {
       // Final chance to inspect the full conversation before the run exits
       await audit.log(messages);
     },
@@ -536,11 +611,11 @@ const agent = createAgent({
 
 | Hook | Signature | Purpose |
 |------|-----------|---------|
-| `onTurnStart` | `(turn: number) => void` | Before each LLM call |
-| `onTurnEnd` | `(turn: number) => void` | After each LLM response |
-| `onToolCall` | `(call: ToolCall) => void` | Before each tool executes |
-| `onToolResult` | `(result: ToolResult) => void` | After each tool returns |
-| `beforeComplete` | `(messages: Message[]) => void` | Just before the run returns |
+| `onTurnStart` | `(turn: number, context: HookContext) => void` | Before each LLM call |
+| `onTurnEnd` | `(turn: number, context: HookContext) => void` | After each LLM response |
+| `onToolCall` | `(call: ToolCall, context: HookContext) => void` | Before each tool executes |
+| `onToolResult` | `(result: ToolResult, context: HookContext) => void` | After each tool returns |
+| `beforeComplete` | `(messages: Message[], context: HookContext) => void` | Just before the run returns |
 
 ### Budget Enforcement
 
@@ -586,13 +661,13 @@ The signal is checked before every LLM turn and threaded through to the model's 
 Attach a store and set a `runId` to automatically persist and resume sessions.
 
 ```typescript
-import { FileStore, RedisStore } from "@etagents/sdk";
+import { FileStore } from "@etagents/sdk";
 
 // ── First run ──
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant.",
-  store: new FileStore({ dir: ".sessions" }),
+  store: new FileStore(".sessions"),
 });
 
 await startRun(agent, "My name is Sagar.", { runId: "user-sagar" });
@@ -622,16 +697,33 @@ The kernel persists a snapshot after every run (best-effort — persistence fail
 
 ## Human-in-the-Loop (HITL)
 
-### Modes: none / tool / sensitive
+### Modes: none / tool / sensitive / callback
 
 ```typescript
-const agent = createAgent({
+import { createRedisStore } from "@etagents/sdk";
+
+const reviewAgent = createAgent({
   name: "assistant",
   systemPrompt: "...",
   hitl: {
     mode: "sensitive",          // Require approval only for tools marked sensitive
     timeoutMs: 120_000,         // 2-minute window before auto-expiry
-    hitlStore: new RedisStore({ url: process.env.REDIS_URL }),
+    hitlStore: createRedisStore({
+      url: process.env.REDIS_URL,
+      namespace: "hitl",
+    }),
+  },
+});
+
+const callbackAgent = createAgent({
+  name: "assistant-inline",
+  systemPrompt: "...",
+  hitl: {
+    mode: "callback",
+    onApprove: async (pending) => pending.map((approval) => ({
+      toolCallId: approval.toolCallId,
+      approved: true,
+    })),
   },
 });
 ```
@@ -641,6 +733,7 @@ const agent = createAgent({
 | `"none"` | No approval required (default) |
 | `"tool"` | Every tool call requires approval |
 | `"sensitive"` | Only tools with `sensitive: true` in their `ToolDef` require approval |
+| `"callback"` | Resolve approvals inline inside `startRun()` without persisting a checkpoint |
 
 ### Suspend and Resume
 
@@ -656,7 +749,7 @@ const result = await startRun(agent, "Send an email to alice@example.com", {
 
 // result.status === "awaiting_approval"
 // pendingApprovals holds the serialised tool calls
-const { pendingApprovals } = result;
+const { checkpointId, pendingApprovals } = result;
 
 // ── Step 2: Show approvals to the user (your UI / webhook) ──
 console.log(pendingApprovals);
@@ -664,7 +757,7 @@ console.log(pendingApprovals);
 
 // ── Step 3: Resume with decisions ──
 const resumed = await continueRun(
-  checkpointId,        // returned from the store as part of suspend metadata
+  checkpointId!,
   [
     { toolCallId: "tc_abc", approved: true },   // approve
     { toolCallId: "tc_xyz", approved: false },  // deny — LLM receives rejection message
@@ -691,7 +784,7 @@ Denied tool calls receive a synthetic `"Tool call rejected by human reviewer."` 
 
 ## Memory
 
-The `MemoryProvider` slot adds cross-run semantic recall. Before the first turn, the kernel retrieves relevant memories via `MemoryPipe.retrieve(input)` and appends them to the system prompt as a `Relevant context:` block. After the run, `MemoryPipe.index([])` fires (fire-and-forget — never awaited on the critical path).
+The `MemoryProvider` slot adds cross-run semantic recall. Before the first turn, the kernel retrieves relevant memories via `MemoryPipe.retrieve(input)` and appends them to the system prompt as a `Relevant context:` block. After the run, memory indexing happens fire-and-forget; when insight is enabled, the SDK indexes extracted facts by default or only the condensed summary when `injectSummaryOnly: true`.
 
 ```typescript
 import { createAgent, startRun, InMemory } from "@etagents/sdk";
@@ -717,11 +810,14 @@ import { RedisMemory } from "@etagents/sdk";
 
 // RedisMemory requires Redis Stack (includes RediSearch for vector search)
 // Do NOT use plain Redis — `FT.CREATE` / `FT.SEARCH` commands will fail
-const memory = new RedisMemory({
-  redis: createClient({ url: process.env.REDIS_URL }),
-  embedder: openAIEmbedder,
-  minScore: 0.7,         // Only inject memories above this similarity threshold
-  ttlSeconds: 604_800,   // Expire entries after 7 days
+const memory = await RedisMemory.connect({
+  url: process.env.REDIS_URL,
+  namespace: "assistant",
+  vectorDim: 1536,
+  embedder: {
+    embed: async (text) => embedWithOpenAI(text),
+  },
+  ttlDays: 7,
 });
 ```
 
@@ -739,10 +835,12 @@ import { createAgent, startRun, RegexPrivacy, BUILTIN_RULES } from "@etagents/sd
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "Process customer requests.",
-  privacy: new RegexPrivacy({
-    rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone, BUILTIN_RULES.ssn],
-    customRules: [{ pattern: /ACCT-\d{8}/g, label: "account" }],
-  }),
+  privacy: new RegexPrivacy([
+    BUILTIN_RULES.email,
+    BUILTIN_RULES.phone,
+    BUILTIN_RULES.ssn,
+    { name: "account", category: "account", pattern: /ACCT-\d{8}/g },
+  ]),
 });
 
 // The LLM never sees "bob@acme.com" — it sees "⟨eta:email:0001⟩"
@@ -758,14 +856,14 @@ const result = await startRun(agent, "Email bob@acme.com about account ACCT-1234
 | `BUILTIN_RULES.phone` | US and international phone numbers |
 | `BUILTIN_RULES.ssn` | US Social Security Numbers |
 | `BUILTIN_RULES.creditCard` | Major credit card formats |
-| `BUILTIN_RULES.ipv4` | IPv4 addresses |
+| `BUILTIN_RULES.ipAddress` | IPv4 addresses |
 
 ### Standalone Masking
 
 ```typescript
 import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
 
-const privacy = new RegexPrivacy({ rules: [BUILTIN_RULES.email] });
+const privacy = new RegexPrivacy([BUILTIN_RULES.email]);
 
 const { masked, map } = await privacy.mask("Contact bob@acme.com");
 // masked: "Contact ⟨eta:email:0001⟩"
@@ -779,16 +877,17 @@ const original = await privacy.unmask(masked, map);
 
 ## Insight (post-run reflection)
 
-`insight` drives automatic post-run fact extraction. The kernel calls `runInsight()` after the turn loop exits (if enabled) and returns a structured `InsightResult`. Results are stored in `SessionSnapshot.__eta` for injection into future sessions.
+`insight` drives automatic post-run fact extraction. The kernel calls `runInsight()` after the turn loop exits when an `InsightConfig` is present. Extracted facts are indexed into memory by default; set `injectSummaryOnly: true` to index only the condensed summary.
 
 ```typescript
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant.",
   insight: {
-    enabled: true,
     model: "claude-haiku-4-5",   // Use a cheaper model for reflection
     maxFacts: 30,                // Cap on extractable facts (default from config)
+    minTurns: 2,
+    injectSummaryOnly: true,
     prompts: {
       extractFacts: "Extract key decisions, user preferences, and action items only.",
     },
@@ -943,7 +1042,11 @@ const result = await router.run("Can I get a refund on my subscription?");
 
 ```typescript
 interface RoutingDecision {
-  agentDef: AgentDef;
+  assignments: Array<{
+    agentDef: AgentDef;
+    subPrompt?: string;
+    parallel?: boolean;
+  }>;
   confidence: number;   // 0–1; deterministic strategies always emit 1
   reason: string;       // Human-readable explanation of the routing choice
 }
@@ -979,6 +1082,8 @@ return new Response(body, { headers: SSE_HEADERS });
 | RunEvent kind | SSE event name | When |
 |---------------|---------------|------|
 | `turn_start`, `turn_end`, `warning`, `exceeded` | `run.status` | Turn lifecycle + budget |
+| `text_delta` | `run.text.delta` | Incremental model text |
+| `text_done` | `run.text.done` | Completed turn text |
 | `tool_call` | `tool.invoke` | Before each tool executes |
 | `tool_result` | `tool.result` | After each tool returns |
 | `error` | `run.error` | On error |
@@ -990,7 +1095,7 @@ return new Response(body, { headers: SSE_HEADERS });
 
 ```typescript
 // app/api/agent/route.ts
-import { createAgent, toNextHandler } from "@etagents/sdk";
+import { createAgent, SessionEventStream, toNextHandler, toNextResponse } from "@etagents/sdk";
 import type { NextRouteRequest } from "@etagents/sdk";
 
 const agent = createAgent({ name: "assistant", systemPrompt: "..." });
@@ -1002,6 +1107,16 @@ export const POST = toNextHandler(agent, {
     maxTurns: 20,
   }),
 });
+
+export async function PUT(req: Request) {
+  const { prompt, runId } = await req.json();
+  const stream = new SessionEventStream(agent);
+  stream.send("run_id", { runId });
+  return toNextResponse(stream, prompt, {
+    config: { runId, signal: req.signal },
+    headers: { "X-Run-Id": runId },
+  });
+}
 ```
 
 Import path for tree-shaking: `@etagents/sdk/next`.
@@ -1042,10 +1157,11 @@ for await (const event of source) {
 }
 
 // Or await the full result
-const result = await source.result;
+const done = await source.result;
+console.log(done.result.response);
 ```
 
-`.abort()` cancels the SSE connection. `.readyState` is `"connecting" | "open" | "closed"`.
+`.close()` cancels the SSE connection. `.readyState` is `"connecting" | "open" | "closed"`.
 
 ---
 
@@ -1164,8 +1280,11 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | Export | Description |
 |--------|-------------|
 | `createAgent(config)` | Resolve config + defaults → frozen `AgentDef` |
+| `cloneAgent(base, overrides?)` | Derive a new `AgentDef` from an existing one |
 | `defineTool(config)` | Zod-parametrised `ToolDef` factory |
 | `executeTool(tool, args)` | Standalone tool execution with validation |
+| `agentAsTool(agent, config?)` | Wrap an `AgentDef` as a delegating tool |
+| `agentToManifest(agent)` | Serialise an agent's public manifest |
 
 #### Kernel
 
@@ -1197,6 +1316,8 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 |--------|-------------|
 | `FileStore` | JSON files on local disk |
 | `RedisStore` | Redis key-value |
+| `createRedisStore` | Lazy sync Redis store factory for module-level singletons |
+| `createRedisClient` | Shared Redis client helper |
 
 #### Privacy Providers
 
@@ -1204,6 +1325,7 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 |--------|-------------|
 | `RegexPrivacy` | Rule-based PII masking with placeholder format `⟨eta:…⟩` |
 | `BUILTIN_RULES` | `email`, `phone`, `ssn`, `creditCard`, `ipv4` |
+| `createPrivacy` | Category-flag shorthand for `RegexPrivacy` |
 
 #### Orchestration
 
@@ -1221,6 +1343,7 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | `SessionEventSource` | Client-side typed SSE consumer |
 | `SSE_HEADERS` | Standard SSE response headers |
 | `toNextHandler` | Next.js App Router handler factory |
+| `toNextResponse` | Full-control Next.js streaming response helper |
 | `toExpressHandler` | Express middleware factory |
 
 #### Insight
@@ -1266,9 +1389,9 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 
 | Import path | Contents |
 |-------------|----------|
-| `@etagents/sdk/next` | `toNextHandler`, `NextRouteRequest`, `NextRouteHandler` |
-| `@etagents/sdk/express` | `toExpressHandler`, `ExpressRequest`, `ExpressResponse` |
-| `@etagents/sdk/client` | `SessionEventSource` (browser-safe) |
+| `@etagents/sdk/next` | `toNextHandler`, `toNextResponse`, `NextRouteRequest`, `NextRouteHandler`, `NextResponseOptions` |
+| `@etagents/sdk/express` | `toExpressHandler`, `ExpressRequest`, `ExpressResponse`, `ExpressHandlerOptions` |
+| `@etagents/sdk/client` | `SessionEventSource`, `ReadyState`, `SessionEventSourceOptions` |
 | `@etagents/sdk/orchestration` | `AgentRouter`, `RuleRouter`, `TriageRouter` (tree-shakeable) |
 
 ### Default Config

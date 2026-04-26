@@ -7,6 +7,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { Command } from "commander";
+import { agentToManifest } from "../../agent/manifest.js";
 import { loadAgentFile } from "../loader/loader.js";
 
 export function register(program: Command): void {
@@ -28,15 +29,7 @@ export function register(program: Command): void {
       }
 
       const manifest = {
-        name: agent.name,
-        systemPrompt: agent.systemPrompt,
-        maxTurns: agent.maxTurns,
-        maxTokens: agent.maxTokens,
-        tools: agent.tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          schema: t.schema,
-        })),
+        ...agentToManifest(agent),
         mcp: agent.mcp,
       };
 

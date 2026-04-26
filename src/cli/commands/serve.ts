@@ -20,7 +20,7 @@ export function register(program: Command): void {
     ) => {
       const agent = await loadAgentFile(agentFile);
       const serverName = opts.name ?? agent.name;
-      const version = opts.version ?? "1.0.0";
+      const version = opts.version ?? agent.version ?? "1.0.0";
 
       const server = new McpServer({ name: serverName, version });
 

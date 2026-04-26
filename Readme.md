@@ -1098,44 +1098,44 @@ The `eta scan` command is a thin CLI wrapper over `ToolScanner.scan()`.
 The `eta` binary is installed when you add `@etagents/sdk` and provides 12 commands.
 
 ```bash
-# Interactive REPL
-eta chat ./my-agent.ts --provider anthropic
+# Interactive REPL with an optional model override
+eta chat ./my-agent.ts --model claude-sonnet-4-6 --session-id demo-chat
 
-# Single-shot run
-eta run ./my-agent.ts "What is the capital of France?"
+# Single-shot run with optional event output
+eta run ./my-agent.ts "What is the capital of France?" --events --show-usage
 
-# Execute a specific tool directly (bypasses LLM)
+# Execute a specific tool directly (bypasses the LLM)
 eta exec ./my-agent.ts search_database --args '{"query":"Q4 sales"}'
 
 # Session management
-eta session list --store .sessions
-eta session get <run-id> --store .sessions
-eta session delete <run-id> --store .sessions
+eta session list --store file:.sessions
+eta session get --session-id demo-chat --store file:.sessions
+eta session delete --session-id demo-chat --store file:.sessions
 
 # Vector memory operations
-eta memory index <run-id> --store .sessions
+eta memory index --session-id demo-chat --store file:.sessions
 eta memory search "user preferences" --top-k 5
 
-# Multi-agent routing
-eta orchestrate ./coordinator.ts --agents ./agents/ --prompt "Research and write a report"
+# Multi-agent routing across explicit agent files
+eta orchestrate "Research and write a report" --agents ./planner.agent.ts,./writer.agent.ts
 
 # Expose tools as an MCP server
 eta serve ./my-agent.ts
 
-# Type-check and validate agent file
-eta build ./my-agent.ts
+# Validate an agent file or emit its manifest
+eta build ./my-agent.ts --out ./agent.manifest.json
 
 # Discover agent and MCP config files in a directory
-eta scan ./src
+eta scan ./src --mcp
 
-# Inspect agent structure and tool schemas
-eta inspect ./my-agent.ts
+# Inspect agent structure, manifest fields, and optional session data
+eta inspect ./my-agent.ts --session-id demo-chat
 
-# Scaffold a new agent
-eta init my-agent
+# Scaffold a new agent file
+eta init my-agent --with-tools
 
 # PII masking utility
-eta mask "Email bob@acme.com" --rules email,phone
+eta mask "Email bob@acme.com" --rules email,phone --json
 ```
 
 | Command | Description |
@@ -1145,12 +1145,12 @@ eta mask "Email bob@acme.com" --rules email,phone
 | `eta exec` | Execute a single tool directly |
 | `eta session` | Session CRUD — list, get, delete |
 | `eta memory` | Vector memory — index, search |
-| `eta orchestrate` | Route a prompt through a multi-agent pool |
+| `eta orchestrate` | Route a prompt across an explicit pool of agent files |
 | `eta serve` | Start tools as an MCP server (stdio) |
-| `eta build` | Type-check and validate an agent file |
+| `eta build` | Validate an agent file and optionally emit its manifest |
 | `eta scan` | Discover agent files and MCP configs |
-| `eta inspect` | Display agent structure and tool schemas |
-| `eta init` | Scaffold a new agent project |
+| `eta inspect` | Display agent structure, manifest fields, and optional session data |
+| `eta init` | Scaffold a new agent file |
 | `eta mask` | PII masking utility |
 
 ---

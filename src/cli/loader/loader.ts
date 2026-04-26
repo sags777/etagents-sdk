@@ -5,7 +5,10 @@
  * Agent files must default-export an AgentDef (created via createAgent).
  */
 
+import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import * as ts from "typescript";
 import type { AgentDef } from "../../types/agent.js";
 import type { ModelProvider } from "../../interfaces/model.js";
 import { AnthropicModel } from "../../providers/model/anthropic/anthropic.js";
@@ -21,7 +24,7 @@ export async function loadAgentFile(agentFile: string): Promise<AgentDef> {
   const resolved = path.resolve(agentFile);
   let mod: { default?: unknown };
   try {
-    mod = (await import(resolved)) as { default?: unknown };
+    mod = await importAgentModule(resolved);
   } catch (err) {
     console.error(`Error loading agent file "${agentFile}": ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
@@ -36,6 +39,56 @@ export async function loadAgentFile(agentFile: string): Promise<AgentDef> {
   }
 
   return agent as AgentDef;
+}
+
+async function importAgentModule(resolved: string): Promise<{ default?: unknown }> {
+  try {
+    return (await import(pathToFileURL(resolved).href)) as { default?: unknown };
+  } catch (err) {
+    if (!isTypescriptAgentFile(resolved)) throw err;
+    return transpileAndImport(resolved);
+  }
+}
+
+function isTypescriptAgentFile(resolved: string): boolean {
+  return /\.(cts|mts|ts|tsx)$/i.test(resolved);
+}
+
+async function transpileAndImport(resolved: string): Promise<{ default?: unknown }> {
+  const source = await fs.readFile(resolved, "utf-8");
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.Preserve,
+      verbatimModuleSyntax: true,
+    },
+    fileName: resolved,
+    reportDiagnostics: true,
+  });
+
+  if (transpiled.diagnostics && transpiled.diagnostics.length > 0) {
+    const message = ts.formatDiagnosticsWithColorAndContext(transpiled.diagnostics, {
+      getCurrentDirectory: () => path.dirname(resolved),
+      getCanonicalFileName: (fileName) => fileName,
+      getNewLine: () => "\n",
+    }).trim();
+    throw new Error(message || `Failed to transpile TypeScript agent file: ${resolved}`);
+  }
+
+  const tempFile = path.join(
+    path.dirname(resolved),
+    `.eta-${path.basename(resolved, path.extname(resolved))}.${process.pid}.${Date.now()}.mjs`,
+  );
+
+  await fs.writeFile(tempFile, transpiled.outputText, "utf-8");
+
+  try {
+    return (await import(`${pathToFileURL(tempFile).href}?t=${Date.now()}`)) as { default?: unknown };
+  } finally {
+    await fs.unlink(tempFile).catch(() => undefined);
+  }
 }
 
 /**
@@ -57,7 +110,7 @@ export function resolveModel(modelId: string, apiKey?: string): ModelProvider {
     return GeminiModel.create({ apiKey: key, model: modelId });
   }
   throw new Error(
-    `Unrecognised model shorthand: "${modelId}". Supported prefixes: claude-*, gpt-*, o1*, o3*, gemini-*`,
+    `Unrecognised model shorthand: "${modelId}". Supported prefixes: claude-*, gpt-*, o1*, o3*, gemini-*. For other providers such as Azure, construct the provider in the agent file and omit --model.`,
   );
 }
 

@@ -21,17 +21,21 @@ Execute an agent file against a single prompt.
 
 ```bash
 eta run ./my-agent.ts "What is the capital of France?"
-eta run ./my-agent.ts "Summarise Q4 sales" --provider openai
-eta run ./my-agent.ts "Hello" --run-id user-alice --store .sessions
+eta run ./my-agent.ts "Summarise Q4 sales" --model claude-sonnet-4-6
+eta run ./my-agent.ts "Hello" --session-id user-alice --events --show-usage
 ```
 
 | Flag | Description |
 |---|---|
-| `--provider <name>` | Model provider (`anthropic`, `openai`, `gemini`, `azure`) |
-| `--run-id <id>` | Session run ID — loads and saves history |
-| `--store <dir>` | Session store directory (default: `.sessions`) |
+| `--model <id>` | Override the model bound on the agent |
+| `--api-key <key>` | API key used with `--model` |
+| `--session-id <id>` | Session run ID for continuity |
 | `--max-turns <n>` | Maximum turns override |
-| `--max-tokens <n>` | Token budget override |
+| `--show-usage` | Print usage totals to stderr |
+| `--show-turns` | Print final turn count to stderr |
+| `--show-tool-calls` | Print tool call names to stderr |
+| `--events` | Stream run events to stderr |
+| `--json` | Emit the full structured `RunResult` |
 
 Your agent file must export a default `AgentDef`:
 
@@ -48,10 +52,10 @@ Start an interactive REPL session with an agent.
 
 ```bash
 eta chat ./my-agent.ts
-eta chat ./my-agent.ts --run-id user-alice
+eta chat ./my-agent.ts --session-id user-alice --model claude-sonnet-4-6
 ```
 
-Type a message and press Enter to send. Type `.exit` or press `Ctrl+C` to quit. The conversation persists if `--run-id` is set.
+Type a message and press Enter to send. Submit an empty line or press `Ctrl+C` to quit. The conversation persists if `--session-id` is set.
 
 ---
 
@@ -73,19 +77,16 @@ Manage persisted session history.
 
 ```bash
 # List all sessions in the store
-eta session list --store .sessions
+eta session list --store file:.sessions
 
 # Inspect a specific session
-eta session get user-alice --store .sessions
-
-# Show token usage for a session
-eta session get user-alice --store .sessions --usage
+eta session get --session-id user-alice --store file:.sessions
 
 # Delete a session
-eta session delete user-alice --store .sessions
+eta session delete --session-id user-alice --store file:.sessions
 ```
 
-`eta session list` outputs a table of run IDs with creation and update timestamps.
+`--store` accepts `file:<dir>` or `redis:<url>`. `eta session list` prints discovered run IDs; `--json` returns the raw list or snapshot.
 
 ---
 
@@ -95,20 +96,23 @@ Work with vector memory (requires `RedisMemory` provider).
 
 ```bash
 # Index a session's transcript into memory
-eta memory index user-alice --store .sessions
+eta memory index --session-id user-alice --store file:.sessions
 
 # Search memory for relevant context
 eta memory search "user preferences" --top-k 5
-
-# Clear all memory entries for an agent
-eta memory clear --agent-id my-agent
 ```
 
 | Flag | Description |
 |---|---|
+| `--redis-url <url>` | Redis URL for `RedisMemory` |
+| `--embedder-key <key>` | OpenAI API key for embeddings |
+| `--namespace <ns>` | Memory namespace |
 | `--top-k <n>` | Number of results to return (default: 5) |
-| `--agent-id <id>` | Scope to a specific agent |
 | `--min-score <n>` | Minimum similarity score (0\u20131) |
+| `--ttl-days <n>` | TTL in days for indexed entries |
+| `--session-id <id>` | Session ID used by `index` |
+| `--store <spec>` | Session store spec for `index` |
+| `--json` | Emit raw search results |
 
 ---
 
@@ -129,25 +133,28 @@ See the [Scanner guide](./guides/advanced/scanner) for programmatic usage.
 
 ## eta inspect
 
-Display the structure of an agent: its name, system prompt, tools, and MCP servers.
+Display the structure of an agent: manifest fields, tools, and MCP servers.
 
 ```bash
 eta inspect ./my-agent.ts
+eta inspect ./my-agent.ts --session-id user-alice --json
 ```
 
-Outputs the agent's name, system prompt, tool names and their Zod-derived JSON schemas. Useful for verifying tool signatures before a run.
+Outputs the agent's name, optional description and version, model class, system prompt, tool names, and MCP servers. `--json` includes tool schemas and optional session data.
 
 ---
 
 ## eta build
 
-Type-check and validate an agent file.
+Validate an agent file and optionally emit its manifest.
 
 ```bash
 eta build ./my-agent.ts
+eta build ./my-agent.ts --out ./agent.manifest.json
+eta build ./my-agent.ts --typecheck-only
 ```
 
-Runs TypeScript type-checking on the agent file and validates that the exported default is a valid `AgentDef`. Use this in CI to catch configuration errors before deploying.
+Loads the exported default `AgentDef` and writes a manifest that includes description, version, model class, tools, and MCP config. Use `--typecheck-only` when you only want validation.
 
 ---
 
@@ -171,33 +178,34 @@ const agent = createAgent({
 
 ## eta orchestrate
 
-Route a prompt through a pool of agent files using `AgentRouter`.
+Route a prompt through an explicit pool of agent files using `AgentRouter`.
 
 ```bash
-eta orchestrate ./coordinator.ts --agents ./agents/ --prompt "Research and summarise AI trends"
+eta orchestrate "Research and summarise AI trends" --agents ./planner.agent.ts,./writer.agent.ts
 ```
 
 | Flag | Description |
 |---|---|
-| `--agents <dir>` | Directory containing `*.agent.ts` files to include in the pool |
-| `--prompt <text>` | The prompt to route |
-| `--strategy <name>` | Routing strategy: `rule` (default) or `triage` |
+| `--agents <paths>` | Comma-separated agent file paths |
+| `--router <name>` | Routing strategy. Currently `triage` is supported |
+| `--triage-model <id>` | Override the model used for triage |
+| `--triage-api-key <key>` | API key for the triage model override |
+| `--session-id <id>` | Run ID for continuity |
+| `--show-usage` | Print usage totals |
+| `--json` | Emit the full structured result |
 
 ---
 
 ## eta init
 
-Scaffold a new agent project.
+Scaffold a new agent file.
 
 ```bash
 eta init my-agent
+eta init my-agent --with-tools --with-mcp
 ```
 
-Creates a directory `my-agent/` with:
-- `package.json` with `@etagents/sdk` dependency
-- `tsconfig.json` configured for ESM
-- `my-agent.agent.ts` with a basic `createAgent` export
-- `.env.example` with `ANTHROPIC_API_KEY`
+Creates `my-agent.agent.ts` in the current directory. Optional flags add a sample tool scaffold and MCP client boilerplate.
 
 ---
 
@@ -213,7 +221,10 @@ Outputs the masked string with placeholders, and lists the detected matches. Use
 
 | Flag | Description |
 |---|---|
-| `--rules <list>` | Comma-separated built-in rules: `email`, `phone`, `ssn`, `creditCard`, `ipv4` |
+| `--rules <list>` | Comma-separated built-in rules: `email`, `phone`, `ssn`, `creditCard`, `ipAddress`, `name` |
+| `--pattern <regex>` | Append a custom regex rule |
+| `--passphrase <key>` | Encrypt the privacy map at rest |
+| `--json` | Emit masked text plus the privacy map |
 
 ---
 

@@ -5,8 +5,7 @@
  */
 
 import type { Command } from "commander";
-import { RegexPrivacy } from "../../providers/privacy/index.js";
-import { BUILTIN_RULES, type PiiRule } from "../../providers/privacy/index.js";
+import { BUILTIN_RULES, createPrivacy, type PiiRule } from "../../providers/privacy/index.js";
 
 export function register(program: Command): void {
   program
@@ -37,26 +36,33 @@ export function register(program: Command): void {
         process.exit(1);
       }
 
-      // Filter rules if requested
-      let rules: PiiRule[] = BUILTIN_RULES;
-      if (opts.rules && opts.rules.length > 0) {
-        const wanted = new Set(opts.rules);
-        rules = BUILTIN_RULES.filter((r) => wanted.has(r.name));
-        if (rules.length === 0) {
-          const valid = BUILTIN_RULES.map((r) => r.name).join(", ");
-          console.error(`Error: No matching rules. Valid rule names: ${valid}`);
-          process.exit(1);
-        }
+      const enabledNames = opts.rules && opts.rules.length > 0
+        ? opts.rules
+        : BUILTIN_RULES.map((rule) => rule.name);
+
+      const selectedCategories = BUILTIN_RULES.reduce<Record<string, boolean>>((acc, rule) => {
+        acc[rule.name] = enabledNames.includes(rule.name);
+        return acc;
+      }, {});
+
+      if (opts.rules && !enabledNames.some((name) => BUILTIN_RULES.some((rule) => rule.name === name))) {
+        const valid = BUILTIN_RULES.map((r) => r.name).join(", ");
+        console.error(`Error: No matching rules. Valid rule names: ${valid}`);
+        process.exit(1);
       }
 
       // Add custom pattern
+      const extraRules: PiiRule[] = [];
       if (opts.pattern) {
         const match = opts.pattern.match(/^\/(.+)\/([gimsuy]*)$/);
         const re = match ? new RegExp(match[1], match[2] || "g") : new RegExp(opts.pattern, "g");
-        rules = [...rules, { name: "custom", category: "custom", pattern: re }];
+        extraRules.push({ name: "custom", category: "custom", pattern: re });
       }
 
-      const privacy = new RegexPrivacy(rules, opts.passphrase);
+      const privacy = createPrivacy(selectedCategories, {
+        passphrase: opts.passphrase,
+        extraRules,
+      });
       const result = await privacy.mask(input);
 
       if (opts.json) {

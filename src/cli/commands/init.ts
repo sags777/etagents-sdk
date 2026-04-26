@@ -51,7 +51,7 @@ function generateTemplate(name: string, withTools: boolean, withMcp: boolean): s
 const greet = defineTool({
   name: "greet",
   description: "Greet a user by name.",
-  schema: z.object({
+  params: z.object({
     name: z.string().describe("The name to greet"),
   }),
   handler: async ({ name }) => {

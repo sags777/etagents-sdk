@@ -5,6 +5,7 @@
  */
 
 import type { Command } from "commander";
+import { agentToManifest } from "../../agent/manifest.js";
 import { loadAgentFile } from "../loader/loader.js";
 
 export function register(program: Command): void {
@@ -19,19 +20,11 @@ export function register(program: Command): void {
       opts: { sessionId?: string; store?: string; json?: boolean },
     ) => {
       const agent = await loadAgentFile(agentFile);
+      const manifest = agentToManifest(agent);
 
       if (opts.json) {
         const out = {
-          name: agent.name,
-          systemPrompt: agent.systemPrompt,
-          maxTurns: agent.maxTurns,
-          maxTokens: agent.maxTokens,
-          tools: agent.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            schema: t.schema,
-            sensitive: t.sensitive,
-          })),
+          ...manifest,
           mcp: agent.mcp,
           session: null as unknown,
         };
@@ -44,18 +37,21 @@ export function register(program: Command): void {
         return;
       }
 
-      console.log(`\nAgent: ${agent.name}`);
-      console.log(`  Max turns:  ${agent.maxTurns}`);
-      console.log(`  Max tokens: ${agent.maxTokens}`);
+      console.log(`\nAgent: ${manifest.name}`);
+      if (manifest.description) console.log(`  Description: ${manifest.description}`);
+      if (manifest.version) console.log(`  Version:     ${manifest.version}`);
+      console.log(`  Model:       ${manifest.model}`);
+      console.log(`  Max turns:   ${manifest.maxTurns}`);
+      console.log(`  Max tokens:  ${manifest.maxTokens}`);
 
-      const prompt = agent.systemPrompt.length > 120
-        ? agent.systemPrompt.slice(0, 120) + "…"
-        : agent.systemPrompt;
+      const prompt = manifest.systemPrompt.length > 120
+        ? manifest.systemPrompt.slice(0, 120) + "…"
+        : manifest.systemPrompt;
       console.log(`  System: "${prompt}"`);
 
-      if (agent.tools.length > 0) {
-        console.log(`\n  Tools (${agent.tools.length}):`);
-        for (const t of agent.tools) {
+      if (manifest.tools.length > 0) {
+        console.log(`\n  Tools (${manifest.tools.length}):`);
+        for (const t of manifest.tools) {
           const flags: string[] = [];
           if (t.sensitive) flags.push("sensitive");
           const flagStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";

@@ -31,7 +31,7 @@ const agent = createAgent({
 `createAgent` does three things:
 1. Validates every config field and throws on invalid input.
 2. Resolves string model shorthands (e.g. `"claude-sonnet-4-6"`) to a `ModelProvider` instance using `process.env.ANTHROPIC_API_KEY`.
-3. Fills missing provider slots with defaults (`FileStore`, no memory, no privacy).
+3. Fills missing provider slots with defaults (no-op store, no memory, no privacy).
 
 **Full `AgentConfig` reference:**
 
@@ -39,9 +39,11 @@ const agent = createAgent({
 |---|---|---|---|
 | `name` | `string` | required | Agent identifier |
 | `systemPrompt` | `string` | required | Base system prompt |
+| `description` | `string` | unset | Human-readable description for catalogs and inspect output |
+| `version` | `string` | unset | Agent version metadata |
 | `model` | `ModelProvider \| string` | `"claude-sonnet-4-6"` | LLM backend |
 | `tools` | `ToolDef[]` | `[]` | Callable tools |
-| `store` | `StoreProvider` | `FileStore` | Session persistence |
+| `store` | `StoreProvider` | no-op store | Session persistence when you opt in |
 | `memory` | `MemoryProvider` | none | Semantic recall |
 | `privacy` | `PrivacyProvider` | none | PII masking |
 | `mcp` | `McpServerConfig[]` | `[]` | MCP servers |
@@ -178,6 +180,7 @@ if (result.status === "awaiting_approval") {
 | `toolCalls` | `ToolCallRecord[]` | All tool invocations with name, args, result, durationMs |
 | `turns` | `number` | LLM turns consumed |
 | `totalUsage` | `TokenUsage?` | `{ prompt, completion, total }` summed across all turns |
+| `checkpointId` | `string?` | Checkpoint identifier for suspended HITL runs |
 | `pendingApprovals` | `PendingApproval[]` | Tool calls waiting for human approval (HITL only) |
 
 ---
@@ -190,8 +193,8 @@ Four slots in `AgentConfig` accept plug-in implementations:
 import {
   AnthropicModel, OpenAIModel,  // model
   InMemory, RedisMemory,         // memory
-  FileStore, RedisStore,         // store
-  RegexPrivacy,                  // privacy
+  FileStore, RedisStore, createRedisStore, // store
+  RegexPrivacy, createPrivacy,   // privacy
 } from "@etagents/sdk";
 ```
 
@@ -221,11 +224,14 @@ createAgent({ model: new MockModel([{ text: "Hello!", toolCalls: [], usage: { pr
 Key-value persistence for session snapshots and HITL checkpoints.
 
 ```typescript
-// FileStore — JSON on disk. Default when no store is configured.
-new FileStore({ dir: ".sessions" });
+// FileStore — JSON on disk for local persistence.
+new FileStore(".sessions");
 
-// RedisStore — for multi-instance or serverless deployments
-new RedisStore({ url: process.env.REDIS_URL });
+// RedisStore — explicit async connection for long-lived processes
+await RedisStore.connect({ url: process.env.REDIS_URL, namespace: "app" });
+
+// createRedisStore — lazy sync factory for module-level singletons
+createRedisStore({ url: process.env.REDIS_URL, namespace: "app" });
 ```
 
 ### memory
@@ -238,7 +244,15 @@ new InMemory();
 
 // RedisMemory — Redis Stack + OpenAI embeddings. For production cross-session recall.
 // Requires Redis Stack (not plain Redis) — needs FT.CREATE / FT.SEARCH commands.
-new RedisMemory({ redis, embedder, minScore: 0.7, ttlSeconds: 604_800 });
+await RedisMemory.connect({
+  url: process.env.REDIS_URL,
+  namespace: "assistant",
+  vectorDim: 1536,
+  embedder: {
+    embed: async (text) => embedWithOpenAI(text),
+  },
+  ttlDays: 7,
+});
 ```
 
 ### privacy
@@ -248,13 +262,17 @@ PII masking applied before every LLM call; unmasking applied to the model's resp
 ```typescript
 import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
 
-new RegexPrivacy({
-  rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone, BUILTIN_RULES.ssn],
-  customRules: [{ pattern: /ACCT-\d{8}/g, label: "account" }],
-});
+new RegexPrivacy([
+  BUILTIN_RULES.email,
+  BUILTIN_RULES.phone,
+  BUILTIN_RULES.ssn,
+  { name: "account", category: "account", pattern: /ACCT-\d{8}/g },
+]);
+
+createPrivacy({ email: true, phone: true, creditCard: true });
 ```
 
-Placeholder format: `⟨eta:email:0001⟩` — unambiguously distinct from any user text.
+Placeholder format: `⟨eta:EMAIL:0001⟩` — unambiguously distinct from any user text.
 
 See the [Privacy guide](../guides/session-internals/privacy) for the full mask/unmask flow.
 

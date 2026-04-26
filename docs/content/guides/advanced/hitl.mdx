@@ -7,7 +7,7 @@ description: Gate sensitive tool calls on human approval with suspend/resume che
 
 # Human-in-the-Loop (HITL)
 
-HITL gates tool calls on human approval. When the agent reaches a tool call requiring approval, the run **suspends**: it serialises the full run state to a store and returns with `status: "awaiting_approval"`. You present the pending tool calls to a human, collect decisions, then call `continueRun` to resume.
+HITL gates tool calls on human approval. When the agent reaches a tool call requiring approval, the run either suspends and returns `status: "awaiting_approval"`, or continues inline when you use callback mode. In the suspend/resume flow, you present the pending tool calls to a human, collect decisions, then call `continueRun` to resume.
 
 ```typescript
 import { z } from "zod";
@@ -34,8 +34,7 @@ const agent = createAgent({
   tools: [sendEmailTool],
   hitl: {
     mode: "tool",        // every tool call requires approval
-    hitlStore: new FileStore({ dir: ".checkpoints" }),
-    timeoutMs: 300_000,  // 5 minutes before checkpoint expires
+    hitlStore: new FileStore(".checkpoints"),
   },
 });
 
@@ -52,7 +51,7 @@ console.log(first.pendingApprovals);
 
 // Step 2: Present pendingApprovals to the human and collect decisions
 // (your UI / webhook / Slack bot handles this)
-const checkpointId = "..."; // from first.pendingApprovals[0].toolCallId or store lookup
+const checkpointId = first.checkpointId!;
 
 const decisions = first.pendingApprovals.map((pa) => ({
   toolCallId: pa.toolCallId,
@@ -74,6 +73,7 @@ console.log(final.response);  // LLM's final message
 | `"none"` | No approval required (default) |
 | `"tool"` | Every tool call requires approval |
 | `"sensitive"` | Only tools with `sensitive: true` in their `ToolDef` require approval |
+| `"callback"` | Calls `onApprove(pending)` inside `startRun()` and continues without persisting a checkpoint |
 
 ### sensitive mode
 
@@ -83,8 +83,9 @@ Mark individual tools as sensitive and use `mode: "sensitive"` to require approv
 const sendEmailTool = defineTool({
   name: "send_email",
   // ...
-  sensitive: true,    // <-- this tool requires approval
 });
+
+sendEmailTool.sensitive = true; // this tool requires approval
 
 const lookupTool = defineTool({
   name: "lookup_contact",
@@ -95,6 +96,27 @@ const lookupTool = defineTool({
 const agent = createAgent({
   hitl: { mode: "sensitive", hitlStore: store },
 });
+```
+
+## Callback mode
+
+Use callback mode when approvals happen in-process and you do not want to persist checkpoints:
+
+```typescript
+const agent = createAgent({
+  name: "assistant-inline",
+  systemPrompt: "...",
+  tools: [sendEmailTool],
+  hitl: {
+    mode: "callback",
+    onApprove: async (pending) => pending.map((approval) => ({
+      toolCallId: approval.toolCallId,
+      approved: true,
+    })),
+  },
+});
+
+const result = await startRun(agent, "Send a welcome email to alice@example.com");
 ```
 
 ---
@@ -128,10 +150,10 @@ Denied tool calls receive a synthetic result: `"Tool call rejected by human revi
 HITL is designed for stateless environments where the process may not be alive when the human responds. The `SuspendSnapshot` checkpoint is written to `hitlStore` and can be loaded in any process.
 
 ```typescript title="app/api/agent/route.ts"
-import { createAgent, startRun, continueRun, RedisStore } from "@etagents/sdk";
+import { createAgent, startRun, continueRun, createRedisStore } from "@etagents/sdk";
 import type { ApprovalDecision } from "@etagents/sdk";
 
-const hitlStore = new RedisStore({ url: process.env.REDIS_URL });
+const hitlStore = createRedisStore({ url: process.env.REDIS_URL, namespace: "hitl" });
 
 const agent = createAgent({
   name: "agent",
@@ -157,21 +179,22 @@ export async function PATCH(req: Request) {
 }
 ```
 
-The `hitlStore` is separate from the session `store` in `AgentConfig`. Use `RedisStore` for `hitlStore` in multi-instance deployments so any instance can resume the checkpoint.
+The `hitlStore` is separate from the session `store` in `AgentConfig`. Use Redis-backed storage for `hitlStore` in multi-instance deployments so any instance can resume the checkpoint.
 
 ---
 
-## Checkpoint expiry
+## Checkpoint errors
 
-Checkpoints expire after `timeoutMs` (default: 5 minutes). If `continueRun` is called with an expired checkpoint, it throws an `EtaError` with code `"checkpoint_expired"`.
+If `continueRun` cannot load a checkpoint, or if you provide an incomplete set of decisions, it throws `CheckpointError` with code `"CHECKPOINT_ERROR"`.
 
 ```typescript
+import { CheckpointError, EtaError } from "@etagents/sdk";
+
 try {
   const result = await continueRun(checkpointId, decisions, { agent });
 } catch (err) {
-  if (err instanceof EtaError && err.code === "checkpoint_expired") {
-    // Restart the run from scratch
-    await startRun(agent, originalPrompt, { runId });
+  if (err instanceof CheckpointError || (err instanceof EtaError && err.code === "CHECKPOINT_ERROR")) {
+    // The checkpoint is missing, consumed, or the decisions were incomplete.
   }
 }
 ```

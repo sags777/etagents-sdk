@@ -7,7 +7,7 @@ description: Subscribe to real-time RunEvents from your agent using the onEvent 
 
 # Streaming
 
-`onEvent` gives you a real-time window into everything the agent does — every LLM turn, every tool call, and the final result. Use it to build streaming UIs, log telemetry, or display progress to users.
+`onEvent` gives you a real-time window into everything the agent does — every LLM turn, incremental text chunk, tool call, and the final result. Use it to build streaming UIs, log telemetry, or display progress to users.
 
 ```typescript
 import { createAgent, startRun } from "@etagents/sdk";
@@ -27,6 +27,9 @@ const result = await startRun(agent, "List three famous landmarks in Paris.", {
         break;
       case "tool_call":
         console.log(`Calling tool: ${event.toolCall.name}`);
+        break;
+      case "text_delta":
+        process.stdout.write(event.delta);
         break;
       case "tool_result":
         console.log(`Tool returned in ${event.durationMs}ms`);
@@ -53,10 +56,14 @@ All events are discriminated on `kind`. TypeScript narrows the type correctly in
 |---|---|---|
 | `turn_start` | Before each LLM call | `turn: number` |
 | `turn_end` | After each LLM response | `turn: number`, `usage: TokenUsage` |
+| `text_delta` | During model streaming | `delta: string`, `turn: number` |
+| `text_done` | When turn text finishes | `text: string`, `turn: number` |
 | `tool_call` | Before each tool executes | `toolCall: { name, args, id }`, `agentName` |
 | `tool_result` | After each tool returns | `toolCallId`, `result`, `isError: boolean`, `durationMs` |
-| `warning` | Budget warning threshold crossed | `message`, `usage` |
-| `exceeded` | Token budget hit | `usage` |
+| `warning` | Budget warning threshold crossed | `state: { prompt, completion, total }` |
+| `exceeded` | Token budget hit | `state: { prompt, completion, total }` |
+| `agent_routed` | `AgentRouter` selected a sub-agent | `agentName`, `confidence`, `reason` |
+| `agent_complete` | A sub-agent finished | `agentName`, `result` |
 | `error` | Non-fatal error | `message`, `code` |
 | `complete` | Run exits (any status) | `result: RunResult` |
 
@@ -96,7 +103,7 @@ const result = await startRun(agent, input, {
   budget: { warnAtPercent: 80 }, // warning fires at 8 000 tokens
   onEvent(event) {
     if (event.kind === "warning") {
-      console.warn(`Token budget at ${event.usage.total} / 10 000`);
+      console.warn(`Token budget at ${event.state.total} / 10 000`);
     }
     if (event.kind === "exceeded") {
       console.error("Budget exceeded — run stopped");

@@ -90,9 +90,9 @@ describe("get_weather tool", () => {
   it("returns JSON with city and temperature", async () => {
     const result = await executeTool(getWeatherTool, { city: "Tokyo" });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const data = JSON.parse(result.data) as { city: string; tempC: number };
+    expect(result.isError).toBe(false);
+    if (!result.isError) {
+      const data = JSON.parse(result.output) as { city: string; tempC: number };
       expect(data.city).toBe("Tokyo");
       expect(data.tempC).toBeTypeOf("number");
     }
@@ -101,7 +101,7 @@ describe("get_weather tool", () => {
   it("rejects invalid arguments", async () => {
     // city is required — passing an empty object should fail Zod validation
     const result = await executeTool(getWeatherTool, {});
-    expect(result.ok).toBe(false);
+    expect(result.isError).toBe(true);
   });
 });
 ```
@@ -124,7 +124,7 @@ let store: FileStore;
 
 beforeEach(async () => {
   storeDir = await mkdtemp(join(tmpdir(), "eta-test-"));
-  store = new FileStore({ dir: storeDir });
+  store = new FileStore(storeDir);
 });
 
 afterEach(async () => {
@@ -173,7 +173,7 @@ it("suspends and resumes with human approval", async () => {
     },
   ]);
 
-  const hitlStore = new FileStore({ dir: storeDir });
+  const hitlStore = new FileStore(storeDir);
 
   const agent = createAgent({
     name: "agent",
@@ -187,7 +187,7 @@ it("suspends and resumes with human approval", async () => {
   const first = await startRun(agent, "Send a welcome email to alice@example.com");
   expect(first.status).toBe("awaiting_approval");
 
-  const checkpointId = first.pendingApprovals[0].toolCallId;
+  const checkpointId = first.checkpointId!;
   const decisions = first.pendingApprovals.map((pa) => ({
     toolCallId: pa.toolCallId,
     approved: true,

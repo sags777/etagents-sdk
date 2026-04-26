@@ -10,15 +10,13 @@ description: Redact PII from LLM inputs and outputs using RegexPrivacy.
 `RegexPrivacy` masks personally identifiable information before every LLM call and automatically restores it in the model's response. Your tool handlers always receive the original unmasked values.
 
 ```typescript
-import { createAgent, startRun, RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
+import { createAgent, startRun, createPrivacy, BUILTIN_RULES } from "@etagents/sdk";
 
 const agent = createAgent({
   name: "support-bot",
   systemPrompt: "You are a support agent. Acknowledge the user's request.",
   model: "claude-sonnet-4-6",
-  privacy: new RegexPrivacy({
-    rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone],
-  }),
+  privacy: createPrivacy([BUILTIN_RULES.email, BUILTIN_RULES.phone]),
 });
 
 // Input contains PII
@@ -27,12 +25,12 @@ const result = await startRun(
   "My email is alice@example.com and phone is +1-555-867-5309",
 );
 
-// The LLM never saw the real email or phone — it worked with \u27e8eta:email:0001\u27e9 and \u27e8eta:phone:0001\u27e9
+// The LLM never saw the real email or phone — it worked with \u27e8eta:EMAIL:0001\u27e9 and \u27e8eta:PHONE:0001\u27e9
 // result.response contains the unmasked values restored automatically
 console.log(result.response);
 ```
 
-Placeholder format: `⟨eta:email:0001⟩` — unambiguously distinct from any user-generated text.
+Placeholder format: `⟨eta:EMAIL:0001⟩` — unambiguously distinct from any user-generated text.
 
 ---
 
@@ -41,13 +39,13 @@ Placeholder format: `⟨eta:email:0001⟩` — unambiguously distinct from any u
 ```
 User input arrives
    ↓
-PrivacyFence.mask()  ← regex rules applied, map built: \u27e8eta:email:0001\u27e9 → alice@example.com
+PrivacyFence.mask()  ← regex rules applied, map built: \u27e8eta:EMAIL:0001\u27e9 → alice@example.com
    ↓
 Masked input sent to LLM
    ↓
 LLM responds with masked placeholders
    ↓
-PrivacyFence.unmask()  ← map applied in reverse: \u27e8eta:email:0001\u27e9 → alice@example.com
+PrivacyFence.unmask()  ← map applied in reverse: \u27e8eta:EMAIL:0001\u27e9 → alice@example.com
    ↓
 Unmasked response returned in RunResult
 ```
@@ -61,17 +59,15 @@ The `PrivacyFence` accumulates the replacement map across all turns in a run —
 ## Built-in rules
 
 ```typescript
-import { BUILTIN_RULES } from "@etagents/sdk";
+import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
 
-new RegexPrivacy({
-  rules: [
-    BUILTIN_RULES.email,       // alice@example.com → \u27e8eta:email:0001\u27e9
-    BUILTIN_RULES.phone,       // +1-555-867-5309 → \u27e8eta:phone:0001\u27e9
-    BUILTIN_RULES.ssn,         // 123-45-6789 → \u27e8eta:ssn:0001\u27e9
-    BUILTIN_RULES.creditCard,  // 4111-1111-1111-1111 → \u27e8eta:cc:0001\u27e9
-    BUILTIN_RULES.ipv4,        // 192.168.1.1 → \u27e8eta:ip:0001\u27e9
-  ],
-});
+new RegexPrivacy([
+  BUILTIN_RULES.email,       // alice@example.com → \u27e8eta:EMAIL:0001\u27e9
+  BUILTIN_RULES.phone,       // +1-555-867-5309 → \u27e8eta:PHONE:0001\u27e9
+  BUILTIN_RULES.ssn,         // 123-45-6789 → \u27e8eta:SSN:0001\u27e9
+  BUILTIN_RULES.creditCard,  // 4111-1111-1111-1111 → \u27e8eta:CREDIT_CARD:0001\u27e9
+  BUILTIN_RULES.ipAddress,   // 192.168.1.1 → \u27e8eta:IP_ADDRESS:0001\u27e9
+]);
 ```
 
 | Rule | Matches |
@@ -80,25 +76,26 @@ new RegexPrivacy({
 | `BUILTIN_RULES.phone` | US and international phone numbers |
 | `BUILTIN_RULES.ssn` | US Social Security Numbers (`\u03a7\u03a7\u03a7-\u03a7\u03a7-\u03a7\u03a7\u03a7\u03a7`) |
 | `BUILTIN_RULES.creditCard` | Visa, Mastercard, Amex, Discover formats |
-| `BUILTIN_RULES.ipv4` | IPv4 addresses (`192.168.x.x`, `10.x.x.x`, etc.) |
+| `BUILTIN_RULES.ipAddress` | IPv4 addresses (`192.168.x.x`, `10.x.x.x`, etc.) |
 
 ---
 
 ## Custom patterns
 
-Add domain-specific identifiers via `customRules`:
+Add domain-specific identifiers by supplying additional `PiiRule` objects:
 
 ```typescript
-new RegexPrivacy({
-  rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone],
-  customRules: [
-    { pattern: /ACCT-\d{8}/g, label: "account" },
-    { pattern: /EMP-[A-Z]{3}-\d{4}/g, label: "employee" },
-  ],
-});
+import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
+
+new RegexPrivacy([
+  BUILTIN_RULES.email,
+  BUILTIN_RULES.phone,
+  { name: "accountId", category: "ACCOUNT_ID", pattern: /ACCT-\d{8}/g },
+  { name: "employeeId", category: "EMPLOYEE_ID", pattern: /EMP-[A-Z]{3}-\d{4}/g },
+]);
 ```
 
-Custom rule patterns must have the `g` flag. The `label` becomes part of the placeholder: `ACCT-12345678` → `⟨eta:account:0001⟩`.
+Custom rule patterns must have the `g` flag. The `category` becomes part of the placeholder: `ACCT-12345678` → `⟨eta:ACCOUNT_ID:0001⟩`.
 
 ---
 
@@ -107,18 +104,16 @@ Custom rule patterns must have the `g` flag. The `label` becomes part of the pla
 You can use `RegexPrivacy` outside of an agent run for preprocessing or testing:
 
 ```typescript
-import { RegexPrivacy, BUILTIN_RULES } from "@etagents/sdk";
+import { createPrivacy, BUILTIN_RULES } from "@etagents/sdk";
 
-const privacy = new RegexPrivacy({
-  rules: [BUILTIN_RULES.email, BUILTIN_RULES.phone],
-});
+const privacy = createPrivacy([BUILTIN_RULES.email, BUILTIN_RULES.phone]);
 
 // Mask
 const { masked, map } = await privacy.mask(
   "Contact alice@example.com or call +1-555-867-5309",
 );
 console.log(masked);
-// "Contact \u27e8eta:email:0001\u27e9 or call \u27e8eta:phone:0001\u27e9"
+// "Contact \u27e8eta:EMAIL:0001\u27e9 or call \u27e8eta:PHONE:0001\u27e9"
 
 // Unmask
 const original = await privacy.unmask(masked, map);

@@ -7,7 +7,7 @@ description: Inject logic at key points in the run lifecycle with hooks.
 
 # Lifecycle Hooks
 
-Lifecycle hooks let you inject logic at key moments in a run without modifying the kernel or your tools. Use them for telemetry, audit logging, message transformation, and debugging.
+Lifecycle hooks let you inject logic at key moments in a run without modifying the kernel or your tools. Use them for telemetry, audit logging, and debugging.
 
 ```typescript
 import { createAgent } from "@etagents/sdk";
@@ -17,16 +17,16 @@ const agent = createAgent({
   systemPrompt: "...",
   model: "claude-sonnet-4-6",
   hooks: {
-    onTurnStart: async (turn) => {
+    onTurnStart: async (turn, context) => {
       console.log(`Turn ${turn}: sending to model`);
     },
-    onToolCall: async (call) => {
-      await telemetry.record("tool_call", { name: call.name, args: call.args });
+    onToolCall: async (call, context) => {
+      await telemetry.record("tool_call", { name: call.name, runId: context.runId });
     },
-    onToolResult: async (result) => {
+    onToolResult: async (result, context) => {
       await telemetry.record("tool_result", { id: result.toolCallId, error: result.isError });
     },
-    beforeComplete: async (messages) => {
+    beforeComplete: async (messages, context) => {
       await auditLog.write(messages);
     },
   },
@@ -41,11 +41,11 @@ All hooks are **fail-open**: if a hook throws, the error is logged and the run c
 
 | Hook | Signature | When |
 |---|---|---|
-| `onTurnStart` | `(turn: number) => void \| Promise<void>` | Before each LLM call |
-| `onTurnEnd` | `(turn: number) => void \| Promise<void>` | After each LLM response |
-| `onToolCall` | `(call: ToolCall) => void \| Promise<void>` | Before each tool executes |
-| `onToolResult` | `(result: ToolResult) => void \| Promise<void>` | After each tool returns |
-| `beforeComplete` | `(messages: Message[]) => void \| Promise<void>` | Just before the run returns |
+| `onTurnStart` | `(turn: number, context: HookContext) => void \| Promise<void>` | Before each LLM call |
+| `onTurnEnd` | `(turn: number, context: HookContext) => void \| Promise<void>` | After each LLM response |
+| `onToolCall` | `(call: ToolCall, context: HookContext) => void \| Promise<void>` | Before each tool executes |
+| `onToolResult` | `(result: ToolResult, context: HookContext) => void \| Promise<void>` | After each tool returns |
+| `beforeComplete` | `(messages: Message[], context: HookContext) => void \| Promise<void>` | Just before the run returns |
 
 All hooks may be async. The kernel awaits each hook before continuing.
 
@@ -64,7 +64,7 @@ const agent = createAgent({
     onTurnStart: async (turn) => {
       turnStartTimes.set(turn, Date.now());
     },
-    onTurnEnd: async (turn) => {
+    onTurnEnd: async (turn, context) => {
       const start = turnStartTimes.get(turn);
       if (start) {
         const latencyMs = Date.now() - start;
@@ -83,11 +83,11 @@ Use these to audit every tool invocation:
 
 ```typescript
 hooks: {
-  onToolCall: async (call) => {
+  onToolCall: async (call, context) => {
     // call.name, call.args, call.id
     console.log(`Calling ${call.name} with`, call.args);
   },
-  onToolResult: async (result) => {
+  onToolResult: async (result, context) => {
     // result.toolCallId, result.result (string), result.isError, result.durationMs
     if (result.isError) {
       await alerting.trigger("tool_error", { id: result.toolCallId });
@@ -104,9 +104,9 @@ hooks: {
 
 ```typescript
 hooks: {
-  beforeComplete: async (messages) => {
+  beforeComplete: async (messages, context) => {
     // Full conversation including tool calls and results
-    await db.archiveConversation(runId, messages);
+    await db.archiveConversation(context.runId, messages);
   },
 },
 ```
@@ -123,7 +123,7 @@ hooks: {
 |---|---|---|
 | Defined on | `AgentConfig` (applies to all runs) | `RunConfig` (per-run) |
 | Error handling | Fail-open (never crashes) | Fail-open |
-| Transforms messages | Yes (`beforeComplete` receives `Message[]`) | No (read-only observation) |
+| Access to run context | Yes (`agentName`, `runId`, `turn`) | Depends on the event payload |
 | Use for | Persistent telemetry, audit logging | Per-run UI updates, progress display |
 
 For simple per-run observation, prefer `onEvent`. Reserve hooks for cross-cutting concerns you want on every run using this agent.

@@ -41,7 +41,7 @@ console.log(result.response); // "The capital of France is Paris."
 | Semantic recall | `InMemory` for dev; `RedisMemory` + embeddings for production |
 | Approve tool calls | HITL suspend/resume — compatible with stateless HTTP endpoints |
 | Route to specialists | `AgentRouter` with `RuleRouter` (deterministic) or `TriageRouter` (LLM-based) |
-| Stream to the browser | `SessionEventStream` → `toNextHandler` / `toExpressHandler` + `SessionEventSource` client |
+| Stream to the browser | `SessionEventStream` → `toNextHandler` / `toNextResponse` / `toExpressHandler` + `SessionEventSource` client |
 | Post-run reflection | `InsightConfig` — fact extraction with three-tier deduplication |
 | Discover agents | `ToolScanner` — filesystem-based agent and MCP config discovery |
 
@@ -68,7 +68,7 @@ Four aspects of the runtime are swappable via interfaces:
 | Slot | Default | Swap for |
 |---|---|---|
 | `model` | `AnthropicModel` (`claude-sonnet-4-6`) | OpenAI, Gemini, Azure, or any HTTP API |
-| `store` | `FileStore` | `RedisStore` or custom persistence |
+| `store` | none | `FileStore`, `RedisStore`, or custom persistence |
 | `memory` | none | `InMemory` or `RedisMemory` for semantic recall |
 | `privacy` | none | `RegexPrivacy` for PII masking |
 

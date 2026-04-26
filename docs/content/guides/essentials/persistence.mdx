@@ -16,7 +16,7 @@ const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant.",
   model: "claude-sonnet-4-6",
-  store: new FileStore({ dir: ".sessions" }),
+  store: new FileStore(".sessions"),
 });
 
 // First run — stored under "user-alice"
@@ -38,7 +38,7 @@ Without `runId`, every call starts a fresh session. With `runId`, the kernel loa
 ```typescript
 import { FileStore } from "@etagents/sdk";
 
-const store = new FileStore({ dir: ".sessions" });
+const store = new FileStore(".sessions");
 ```
 
 Each file is named `<runId>.json`. You can read, back up, or delete session files directly. Use `FileStore` for:
@@ -57,16 +57,16 @@ Each file is named `<runId>.json`. You can read, back up, or delete session file
 `RedisStore` stores sessions in Redis. Use this for multi-instance deployments, serverless environments, or anywhere you need TTL-based expiry.
 
 ```typescript
-import { RedisStore } from "@etagents/sdk";
-import { createClient } from "redis";
+import { RedisStore, createRedisStore } from "@etagents/sdk";
 
-const redis = createClient({ url: process.env.REDIS_URL });
-await redis.connect();
+const store = await RedisStore.connect({
+  url: process.env.REDIS_URL,
+  namespace: "app",
+});
 
-const store = new RedisStore({
-  redis,
-  keyPrefix: "eta:",     // optional — default is "eta:"
-  ttlSeconds: 86_400,    // optional — expire sessions after 24 hours
+const lazyStore = createRedisStore({
+  url: process.env.REDIS_URL,
+  namespace: "app",
 });
 
 const agent = createAgent({
@@ -76,7 +76,7 @@ const agent = createAgent({
 });
 ```
 
-`RedisStore` requires a connected `redis` client. The `keyPrefix` isolates etagents keys from other data in the same Redis instance.
+Use `RedisStore.connect()` in long-lived processes when you want to own the connection lifecycle. Use `createRedisStore()` for sync module init contexts like Next.js route files.
 
 ---
 
@@ -99,8 +99,8 @@ interface SessionSnapshot {
 You can read snapshots directly from `FileStore` for inspection or migration:
 
 ```typescript
-const store = new FileStore({ dir: ".sessions" });
-const snapshot = await store.read<SessionSnapshot>("user-alice");
+const store = new FileStore(".sessions");
+const snapshot = await store.read<SessionSnapshot>("eta:run:user-alice");
 console.log(snapshot?.messages.length); // number of messages in history
 ```
 
@@ -121,26 +121,16 @@ await startRun(agent, "Hello", {
 
 ---
 
-## Message trimming
+## Stored history limits
 
-Long sessions can exceed the model's context window. The kernel trims message history using these `AgentConfig` fields:
+Long sessions can exceed the model's context window. The kernel applies internal defaults from `DEFAULT_CONFIG` when persisting large histories:
 
-| Field | Default | Description |
+| Runtime default | Value | Description |
 |---|---|---|
-| `maxPersistedMessages` | unlimited | Hard cap on messages stored per snapshot |
-| `maxToolContentLength` | unlimited | Truncate tool result content to this length |
+| `maxPersistedMessages` | `40` | Older history is compacted before persistence |
+| `maxToolContentLength` | `8_000` | Tool result content is truncated before it is appended |
 
-```typescript
-const agent = createAgent({
-  name: "assistant",
-  systemPrompt: "...",
-  store: new FileStore({ dir: ".sessions" }),
-  maxPersistedMessages: 100,       // keep last 100 messages
-  maxToolContentLength: 4_096,     // truncate large tool results
-});
-```
-
-Message trimming always preserves the most recent messages. The system prompt is never trimmed.
+These are runtime defaults, not `AgentConfig` fields. Message trimming always preserves the most recent history and the system prompt.
 
 ---
 
@@ -152,11 +142,13 @@ When HITL is enabled, the kernel writes a `SuspendSnapshot` checkpoint — a sep
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "...",
-  store: new FileStore({ dir: ".sessions" }),         // session history
+  store: new FileStore(".sessions"),                  // session history
   hitl: {
     mode: "sensitive",
-    hitlStore: new RedisStore({ url: process.env.REDIS_URL }), // HITL checkpoints
-    timeoutMs: 300_000,  // 5 min before checkpoint expires
+    hitlStore: createRedisStore({
+      url: process.env.REDIS_URL,
+      namespace: "hitl",
+    }),
   },
 });
 ```

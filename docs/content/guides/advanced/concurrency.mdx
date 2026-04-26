@@ -112,10 +112,10 @@ import { executeTool } from "@etagents/sdk";
 
 const result = await executeTool(fetchWeather, { city: "Tokyo" });
 
-if (result.ok) {
-  console.log(result.data);   // validated tool output
+if (!result.isError) {
+  console.log(result.output);   // validated tool output
 } else {
-  console.error(result.error); // ToolError with message
+  console.error(result.output); // serialized tool error output
 }
 ```
 

@@ -110,7 +110,7 @@ const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant with memory.",
   model: "claude-sonnet-4-6",
-  store: new FileStore({ dir: ".sessions" }),
+  store: new FileStore(".sessions"),
 });
 
 // First message — stored under run ID "user-alice"

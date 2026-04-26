@@ -7,7 +7,7 @@ description: Consume structured run events via SessionEventStream and SessionEve
 
 # Event Stream
 
-`SessionEventStream` wraps `startRun` into a `ReadableStream<Uint8Array>` of SSE-formatted messages. Use it to stream run events to browsers over HTTP without holding the connection open for the entire run.
+`SessionEventStream` wraps `startRun()` and `continueRun()` into a `ReadableStream<Uint8Array>` of SSE-formatted messages. Use it to stream run events to browsers over HTTP.
 
 ```typescript title="app/api/agent/route.ts"
 import { createAgent, SessionEventStream, SSE_HEADERS } from "@etagents/sdk";
@@ -18,10 +18,9 @@ const agent = createAgent({
   model: "claude-sonnet-4-6",
 });
 
-const eventStream = new SessionEventStream(agent);
-
 export async function POST(req: Request) {
   const { prompt } = await req.json() as { prompt: string };
+  const eventStream = new SessionEventStream(agent);
   const body = eventStream.stream(prompt);
   return new Response(body, { headers: SSE_HEADERS });
 }
@@ -38,6 +37,8 @@ SSE event names use dot-notation and differ from the `RunEvent.kind` strings:
 | `RunEvent.kind` | SSE event name | When |
 |---|---|---|
 | `turn_start`, `turn_end`, `warning`, `exceeded` | `run.status` | Turn lifecycle + budget |
+| `text_delta` | `run.text.delta` | Incremental model text |
+| `text_done` | `run.text.done` | Completed turn text |
 | `tool_call` | `tool.invoke` | Before each tool executes |
 | `tool_result` | `tool.result` | After each tool returns |
 | `error` | `run.error` | Non-fatal error |
@@ -49,11 +50,10 @@ Each event's `data` is a JSON-serialised `RunEvent` object.
 
 ## Next.js App Router
 
-Use `toNextHandler` to create a route handler from an agent. It reads the prompt from the request body and resolves per-request config via `resolveConfig`:
+Use `toNextHandler` when your route can accept the request body as plain text. Use `toNextResponse` when you need to parse JSON, add response headers, or set per-request run config:
 
 ```typescript title="app/api/agent/route.ts"
-import { createAgent, toNextHandler } from "@etagents/sdk";
-import type { NextRouteRequest } from "@etagents/sdk";
+import { createAgent, SessionEventStream, toNextHandler, toNextResponse } from "@etagents/sdk";
 
 const agent = createAgent({
   name: "assistant",
@@ -62,14 +62,23 @@ const agent = createAgent({
 });
 
 export const POST = toNextHandler(agent, {
-  resolveConfig: (req: NextRouteRequest) => ({
-    runId: req.headers.get("x-session-id") ?? undefined,
+  config: {
     maxTurns: 20,
-  }),
+  },
 });
+
+export async function PUT(req: Request) {
+  const { prompt, runId } = await req.json() as { prompt: string; runId: string };
+  const stream = new SessionEventStream(agent);
+  stream.send("run_id", { runId });
+  return toNextResponse(stream, prompt, {
+    config: { runId, signal: req.signal },
+    headers: { "X-Run-Id": runId },
+  });
+}
 ```
 
-The handler expects a JSON body with a `prompt` field and streams the response as SSE. For tree-shaking, import from `@etagents/sdk/next`.
+`toNextHandler` reads the raw request body as text. For tree-shaking, import from `@etagents/sdk/next`.
 
 ---
 
@@ -80,7 +89,7 @@ import express from "express";
 import { createAgent, toExpressHandler } from "@etagents/sdk";
 
 const app = express();
-app.use(express.json());
+app.use(express.text());
 
 const agent = createAgent({
   name: "assistant",
@@ -89,9 +98,8 @@ const agent = createAgent({
 });
 
 app.post("/api/agent", toExpressHandler(agent, {
-  resolveConfig: (req) => ({
-    runId: req.headers["x-session-id"] as string | undefined,
-  }),
+  headers: { "Access-Control-Allow-Origin": "*" },
+  config: { maxTurns: 20 },
 }));
 
 app.listen(3000);
@@ -110,14 +118,13 @@ import { createAgent, SessionEventStream, SSE_HEADERS } from "@etagents/sdk";
 import type { ApprovalDecision } from "@etagents/sdk";
 
 const agent = createAgent({ ... });
-const eventStream = new SessionEventStream(agent);
-
 export async function POST(req: Request) {
   const { checkpointId, decisions } = await req.json() as {
     checkpointId: string;
     decisions: ApprovalDecision[];
   };
 
+  const eventStream = new SessionEventStream(agent);
   const body = eventStream.resume(checkpointId, decisions);
   return new Response(body, { headers: SSE_HEADERS });
 }
@@ -149,9 +156,9 @@ source.on("run.done", (event) => {
   }
 });
 
-// Await the full RunResult
-const result = await source.result;
-console.log(result.status);
+// Await the final completion event
+const done = await source.result;
+console.log(done.result.status);
 ```
 
 **`SessionEventSource` API:**
@@ -159,8 +166,8 @@ console.log(result.status);
 | Method / Property | Description |
 |---|---|
 | `source.on(eventName, handler)` | Subscribe to a specific SSE event type |
-| `await source.result` | Await the final `RunResult` |
-| `source.abort()` | Cancel the SSE connection |
+| `await source.result` | Await the final `complete` event |
+| `source.close()` | Cancel the SSE connection |
 | `source.readyState` | `"connecting"` \| `"open"` \| `"closed"` |
 
 ---
@@ -170,9 +177,9 @@ console.log(result.status);
 `SessionEventSource` supports async iteration for sequential event processing:
 
 ```typescript
-for await (const event of source) {
-  // event is typed as RunEvent
-  if (event.kind === "tool_call") {
+for await (const message of source) {
+  if (message.event === "tool.invoke") {
+    const event = message.data;
     console.log("Tool:", event.toolCall.name);
   }
 }
@@ -180,9 +187,9 @@ for await (const event of source) {
 
 ---
 
-## Cancellation on disconnect
+## Cancellation wiring
 
-When the client disconnects (browser tab closed, network drop), `SessionEventStream` detects the closed stream and cancels the underlying run via `AbortSignal`. No cleanup code required.
+`SessionEventStream` forwards `options.config.signal` into `startRun()` and `continueRun()`. If your framework exposes a request abort signal, pass it through so the run can stop when the client disconnects.
 
 ---
 

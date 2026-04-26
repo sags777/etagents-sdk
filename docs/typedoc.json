@@ -12,5 +12,8 @@
   "interfacePropertiesFormat": "table",
   "typeDeclarationFormat": "table",
   "enumMembersFormat": "table",
-  "expandObjects": true
+  "expandObjects": true,
+  "validation": {
+    "notExported": false
+  }
 }

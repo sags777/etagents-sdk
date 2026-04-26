@@ -2,7 +2,6 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import llmsTxtPlugin from './plugins/llms-txt';
-import type { PluginOptions as TypeDocPluginOptions } from 'docusaurus-plugin-typedoc';
 
 // ─── Single source of truth for all branding ───────────────────────────────
 const brand = {
@@ -51,23 +50,6 @@ const config: Config = {
 
   plugins: [
     llmsTxtPlugin,
-    [
-      'docusaurus-plugin-typedoc',
-      {
-        entryPoints: ['../src/index.ts'],
-        tsconfig: '../tsconfig.json',
-        out: 'content/reference',
-        readme: 'none',
-        excludePrivate: true,
-        excludeInternal: true,
-        skipErrorChecking: true,
-        exclude: ['../src/collections/**'],
-        parametersFormat: 'table',
-        interfacePropertiesFormat: 'table',
-        typeDeclarationFormat: 'table',
-        enumMembersFormat: 'table',
-      } satisfies Partial<TypeDocPluginOptions>,
-    ],
   ],
 
   presets: [

@@ -112,6 +112,8 @@ export function createAgent(config: AgentConfig): AgentDef {
     name: config.name,
     systemPrompt: config.systemPrompt,
     tools: config.tools ?? [],
+    description: config.description,
+    version: config.version,
 
     model: resolveModel(config.model),
     memory: config.memory ?? NO_OP_MEMORY,

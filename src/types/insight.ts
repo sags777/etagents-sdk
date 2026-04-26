@@ -12,6 +12,16 @@
 export interface InsightConfig {
   model?: string;
   maxFacts?: number;
+  /**
+   * Minimum number of turns before the insight pass runs.
+   * Skips extraction on trivial single-turn Q&A sessions to save tokens.
+   */
+  minTurns?: number;
+  /**
+   * When true, a short hypothetical answer is generated before vector-searching
+   * memory, improving recall via the HyDE (Hypothetical Document Embeddings) technique.
+   */
+  hypothesize?: boolean;
   /** Custom prompt overrides for fact extraction and summarisation */
   prompts?: {
     extractFacts?: string;

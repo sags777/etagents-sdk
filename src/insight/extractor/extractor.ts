@@ -121,12 +121,27 @@ function deduplicate(candidates: string[], cap: number): string[] {
  *
  * Always succeeds — returns empty arrays on model or parse failure so the
  * caller's run loop is never interrupted.
+ *
+ * @param messages  Conversation messages to analyse.
+ * @param model     Model to use for extraction.
+ * @param config    Insight configuration.
+ * @param turns     Number of completed turns — used to enforce `minTurns`.
  */
 export async function runInsight(
   messages: Message[],
   model: ModelProvider,
   config: InsightConfig,
+  turns?: number,
 ): Promise<InsightResult> {
+  // Guard: skip if turns < minTurns
+  if (
+    turns !== undefined &&
+    config.minTurns !== undefined &&
+    turns < config.minTurns
+  ) {
+    return { facts: [], userFacts: [], summary: "", topics: [] };
+  }
+
   const maxFacts = config.maxFacts ?? DEFAULT_CONFIG.maxFacts;
 
   // Build transcript from user/assistant turns only to reduce token cost

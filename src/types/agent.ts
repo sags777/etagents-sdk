@@ -29,12 +29,24 @@ export interface HitlConfig {
 // Lifecycle hooks
 // ---------------------------------------------------------------------------
 
+/**
+ * HookContext — contextual metadata passed to every lifecycle hook.
+ *
+ * Enables telemetry, logging, and tracing without requiring the hook to
+ * capture these values via closure.
+ */
+export interface HookContext {
+  agentName: string;
+  runId: string;
+  turn: number;
+}
+
 export interface LifecycleHooks {
-  onTurnStart?: (turn: number) => void | Promise<void>;
-  onTurnEnd?: (turn: number) => void | Promise<void>;
-  onToolCall?: (call: ToolCall) => void | Promise<void>;
-  onToolResult?: (result: ToolResult) => void | Promise<void>;
-  beforeComplete?: (messages: Message[]) => void | Promise<void>;
+  onTurnStart?: (turn: number, context: HookContext) => void | Promise<void>;
+  onTurnEnd?: (turn: number, context: HookContext) => void | Promise<void>;
+  onToolCall?: (call: ToolCall, context: HookContext) => void | Promise<void>;
+  onToolResult?: (result: ToolResult, context: HookContext) => void | Promise<void>;
+  beforeComplete?: (messages: Message[], context: HookContext) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +61,11 @@ export interface AgentConfig {
   name: string;
   systemPrompt: string;
   tools?: ToolDef[];
+
+  /** Human-readable description for catalogs, dashboards, and `eta inspect`. */
+  description?: string;
+  /** Semver string for agent versioning (`"1.0.0"`). No runtime effect. */
+  version?: string;
 
   /** ModelProvider instance or a string shorthand (e.g. `"claude-sonnet-4-6"`) */
   model?: ModelProvider | string;
@@ -80,6 +97,11 @@ export interface AgentDef {
   name: string;
   systemPrompt: string;
   tools: ToolDef[];
+
+  /** Human-readable description for catalogs and dashboards. */
+  description?: string;
+  /** Semver version string. No runtime effect. */
+  version?: string;
 
   model: ModelProvider;
   memory: MemoryProvider;

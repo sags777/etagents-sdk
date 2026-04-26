@@ -14,6 +14,16 @@ interface McpServerBase {
   serverName: string;
   /** When true, the kernel will refuse to start if this server fails to connect */
   required?: boolean;
+  /**
+   * Maximum number of reconnect attempts on initial connect failure.
+   * Defaults to 0 (no retries — fail immediately on error).
+   */
+  maxReconnectAttempts?: number;
+  /**
+   * Delay in milliseconds between reconnect attempts.
+   * Defaults to 1000.
+   */
+  reconnectDelayMs?: number;
 }
 
 export interface StdioMcpServerConfig extends McpServerBase {

@@ -37,6 +37,8 @@ export interface JsonSchema {
  *
  * `sequential` prevents concurrent invocation of this tool with others.
  * `timeout` overrides DEFAULT_CONFIG.toolTimeoutMs for this specific tool.
+ * `sensitive` causes HITL `mode: "sensitive"` to require approval before running.
+ * `cache` enables kernel-level result caching backed by the agent's StoreProvider.
  */
 export interface ToolDef<TArgs = Record<string, unknown>> {
   name: string;
@@ -47,6 +49,19 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
   /** When true, HITL `mode: "sensitive"` will require approval before this tool runs */
   sensitive?: boolean;
   timeout?: number;
+  /**
+   * Tool-result cache config.
+   * When enabled, the kernel stores the result keyed by tool name + args hash,
+   * and returns the cached value on subsequent identical calls without re-executing.
+   * Only applied to non-error results.
+   *
+   * Cache key: `eta:tool-cache:{name}:{sha256(stableArgs)}`
+   */
+  cache?: {
+    enabled: boolean;
+    /** TTL for cached results in milliseconds. Defaults to no expiry. */
+    ttlMs?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------

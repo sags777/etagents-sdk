@@ -1,4 +1,4 @@
-import { createClient, type RedisClientType } from "redis";
+import { type RedisClientType } from "redis";
 import type {
   MemoryProvider,
   MemoryEntry,
@@ -7,6 +7,7 @@ import type {
   MemoryMatch,
 } from "../../../interfaces/memory.js";
 import { MemoryError } from "../../../errors.js";
+import { createRedisClient } from "../../_redis.js";
 
 // ---------------------------------------------------------------------------
 // Local types
@@ -20,6 +21,12 @@ interface EmbedderI {
 export interface RedisMemoryConfig {
   /** Redis connection URL. Defaults to redis://localhost:6379. */
   url?: string;
+  /**
+   * Pre-connected Redis client.
+   * When provided, `url` is ignored and no new connection is created.
+   * Use `createRedisClient()` to share a client with `RedisStore`.
+   */
+  client?: RedisClientType;
   /** Instance namespace — prefixed to every key for isolation. */
   namespace: string;
   /** Embedder used for indexing and query vectors. */
@@ -82,11 +89,7 @@ export class RedisMemory implements MemoryProvider {
 
   /** Create, connect, and return a ready-to-use RedisMemory instance. */
   static async connect(config: RedisMemoryConfig): Promise<RedisMemory> {
-    const client = createClient({ url: config.url }) as RedisClientType;
-    client.on("error", () => {
-      // Swallow connection-level errors — operations will throw MemoryError
-    });
-    await client.connect();
+    const client = config.client ?? await createRedisClient(config.url);
     const inst = new RedisMemory(client, config);
     await inst.ensureIndex();
     return inst;

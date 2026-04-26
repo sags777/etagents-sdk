@@ -2,7 +2,7 @@ import type { ModelProvider, StreamChunk, TokenUsage, FinishReason } from "../..
 import type { ToolCall, ToolResult } from "../../types/message.js";
 import type { ToolCallRecord } from "../../types/tool.js";
 import type { RunState, RunEvent } from "../../types/run.js";
-import type { HitlConfig, LifecycleHooks } from "../../types/agent.js";
+import type { HitlConfig, LifecycleHooks, HookContext } from "../../types/agent.js";
 import type { PendingApproval } from "../../types/checkpoint.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
@@ -40,6 +40,8 @@ export interface TurnCycleContext {
   emit: (event: RunEvent) => void;
   signal?: AbortSignal;
   maxTokens: number;
+  /** Agent's store — passed through to ToolContext for tool-result caching. */
+  store?: import("../../interfaces/store.js").StoreProvider;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +125,7 @@ export class TurnCycle {
     const turnNumber = state.turns + 1;
 
     // 1. onTurnStart hook
-    await safeHook(() => Promise.resolve(ctx.hooks.onTurnStart?.(turnNumber)));
+    await safeHook(() => Promise.resolve(ctx.hooks.onTurnStart?.(turnNumber, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
     ctx.emit({ kind: "turn_start", turn: turnNumber });
 
     // 2. Mask messages before sending to model
@@ -160,7 +162,7 @@ export class TurnCycle {
     ctx.ledger.checkAndEmit(ctx.maxTokens);
 
     // 7. onTurnEnd hook + emit
-    await safeHook(() => Promise.resolve(ctx.hooks.onTurnEnd?.(turnNumber)));
+    await safeHook(() => Promise.resolve(ctx.hooks.onTurnEnd?.(turnNumber, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
     ctx.emit({ kind: "turn_end", turn: turnNumber, usage: collected.usage });
 
     // 8. Append assistant message
@@ -200,6 +202,7 @@ export class TurnCycle {
       runId: ctx.runId,
       agentName: ctx.agentName,
       messages: state.messages,
+      store: ctx.store,
     };
 
     const results = await dispatchToolCalls(
@@ -211,7 +214,7 @@ export class TurnCycle {
 
     // 13. Fire hooks + append tool results
     for (const result of results) {
-      await safeHook(() => Promise.resolve(ctx.hooks.onToolResult?.(result)));
+      await safeHook(() => Promise.resolve(ctx.hooks.onToolResult?.(result, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
       ctx.emit({
         kind: "tool_result",
         toolCallId: result.toolCallId,

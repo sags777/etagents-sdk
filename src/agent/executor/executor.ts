@@ -1,5 +1,6 @@
 import type { ToolDef } from "../../types/tool.js";
 import type { Message } from "../../types/message.js";
+import type { StoreProvider } from "../../interfaces/store.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 
 // ---------------------------------------------------------------------------
@@ -12,6 +13,8 @@ export interface ToolContext {
   /** Read-only snapshot of the current message history */
   messages: readonly Message[];
   metadata?: Record<string, unknown>;
+  /** Agent's store — used for tool-result caching when `tool.cache.enabled`. */
+  store?: StoreProvider;
 }
 
 // ---------------------------------------------------------------------------

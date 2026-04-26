@@ -41,6 +41,7 @@ export class McpClient {
 
   /**
    * Connects the underlying MCP Client if not already connected.
+   * Retries up to `config.maxReconnectAttempts` times with `config.reconnectDelayMs` delay.
    * All I/O errors are wrapped in `McpError`.
    */
   private async ensureConnected(handle: McpHandle): Promise<Client> {
@@ -51,28 +52,38 @@ export class McpClient {
 
     if (entry.client) return entry.client;
 
-    const client = new Client({ name: "eta-mcp-client", version: "0.0.1" });
+    const maxAttempts = (entry.config.maxReconnectAttempts ?? 0) + 1;
+    const delayMs = entry.config.reconnectDelayMs ?? 1000;
 
-    const transport =
-      entry.config.transport === "stdio"
-        ? new StdioClientTransport({
-            command: entry.config.command,
-            args: entry.config.args,
-            env: entry.config.env,
-          })
-        : new SSEClientTransport(new URL(entry.config.url));
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const client = new Client({ name: "eta-mcp-client", version: "0.0.1" });
 
-    try {
-      await client.connect(transport);
-    } catch (err) {
-      throw new McpError(
-        `Failed to connect to MCP server "${handle.serverName}": ${String(err)}`,
-        { cause: err },
-      );
+      const transport =
+        entry.config.transport === "stdio"
+          ? new StdioClientTransport({
+              command: entry.config.command,
+              args: entry.config.args,
+              env: entry.config.env,
+            })
+          : new SSEClientTransport(new URL(entry.config.url));
+
+      try {
+        await client.connect(transport);
+        entry.client = client;
+        return client;
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
     }
 
-    entry.client = client;
-    return client;
+    throw new McpError(
+      `Failed to connect to MCP server "${handle.serverName}" after ${maxAttempts} attempt(s): ${String(lastError)}`,
+      { cause: lastError },
+    );
   }
 
   /**

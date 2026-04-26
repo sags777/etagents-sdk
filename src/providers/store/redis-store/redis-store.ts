@@ -1,6 +1,7 @@
-import { createClient, type RedisClientType } from "redis";
+import { type RedisClientType } from "redis";
 import type { StoreProvider, WriteOptions } from "../../../interfaces/store.js";
 import { StoreError } from "../../../errors.js";
+import { createRedisClient } from "../../_redis.js";
 
 /**
  * RedisStoreConfig — connection and namespace options.
@@ -8,6 +9,12 @@ import { StoreError } from "../../../errors.js";
 export interface RedisStoreConfig {
   /** Redis connection URL. Defaults to redis://localhost:6379. */
   url?: string;
+  /**
+   * Pre-connected Redis client.
+   * When provided, `url` is ignored and no new connection is created.
+   * Use `createRedisClient()` to share a client with `RedisMemory`.
+   */
+  client?: RedisClientType;
   /** Namespace prefixed to every key: `eta:store:{namespace}:{key}` */
   namespace: string;
 }
@@ -32,13 +39,10 @@ export class RedisStore implements StoreProvider {
 
   /**
    * Create and connect a RedisStore.
+   * Pass `config.client` to reuse an existing connection (e.g. shared with RedisMemory).
    */
   static async connect(config: RedisStoreConfig): Promise<RedisStore> {
-    const client = createClient({ url: config.url }) as RedisClientType;
-    client.on("error", () => {
-      // Swallow connection-level errors — individual operations will throw StoreError
-    });
-    await client.connect();
+    const client = config.client ?? await createRedisClient(config.url);
     return new RedisStore(client, config.namespace);
   }
 

@@ -51,7 +51,7 @@ export async function createRunServices(
   ]);
 
   const scope: MemoryScope = { agentId: agent.name, namespace: "default" };
-  const pipe = MemoryPipe.create(agent.memory, scope);
+  const pipe = MemoryPipe.create(agent.memory, scope, agent.model, agent.insight?.hypothesize);
   const emit: (event: RunEvent) => void = onEvent ?? (() => undefined);
   const ledger = new BudgetLedger((event) => emit(event));
 
@@ -85,5 +85,6 @@ export function buildTurnCycleContext(
     emit,
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
+    store: agent.store,
   };
 }

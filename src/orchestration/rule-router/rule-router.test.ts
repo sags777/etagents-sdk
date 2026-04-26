@@ -67,7 +67,7 @@ describe("RuleRouter", () => {
       .build();
 
     const decision = await strategy.route("Please resend my invoice from last month.");
-    expect(decision.agentDef).toBe(billingAgent);
+    expect(decision.assignments[0].agentDef).toBe(billingAgent);
     expect(decision.confidence).toBe(1);
   });
 
@@ -79,7 +79,7 @@ describe("RuleRouter", () => {
       .build();
 
     const decision = await strategy.route("I need help with a support ticket.");
-    expect(decision.agentDef).toBe(supportAgent);
+    expect(decision.assignments[0].agentDef).toBe(supportAgent);
     expect(decision.confidence).toBe(1);
   });
 
@@ -90,7 +90,7 @@ describe("RuleRouter", () => {
       .build();
 
     const decision = await strategy.route("What is the weather like today?");
-    expect(decision.agentDef).toBe(generalAgent);
+    expect(decision.assignments[0].agentDef).toBe(generalAgent);
     expect(decision.confidence).toBe(0.5);
   });
 
@@ -101,11 +101,11 @@ describe("RuleRouter", () => {
       .build();
 
     const decision = await strategy.route("Billing inquiry about my account.");
-    expect(decision).toHaveProperty("agentDef");
+    expect(decision).toHaveProperty("assignments");
     expect(decision).toHaveProperty("confidence");
     expect(decision).toHaveProperty("reason");
     expect(typeof decision.reason).toBe("string");
-    expect(decision.agentDef.name).toBe("BillingAgent");
+    expect(decision.assignments[0].agentDef.name).toBe("BillingAgent");
   });
 
   it("throws when no rule matches and no fallback is configured", async () => {
@@ -127,7 +127,7 @@ describe("RuleRouter", () => {
 
     // Both patterns match, but the first one wins
     const decision = await strategy.route("I have a question about my order support case.");
-    expect(decision.agentDef).toBe(billingAgent);
+    expect(decision.assignments[0].agentDef).toBe(billingAgent);
   });
 
   it("throws if when() is called after build()", () => {

@@ -49,7 +49,7 @@ describe("TriageRouter", () => {
       const router = new TriageRouter({ model, agents });
       const decision = await router.route("What is my invoice total?");
 
-      expect(decision.agentDef.name).toBe("BillingAgent");
+      expect(decision.assignments[0].agentDef.name).toBe("BillingAgent");
       expect(decision.confidence).toBe(0.9);
       expect(decision.reason).toContain("invoice");
     });
@@ -87,7 +87,7 @@ describe("TriageRouter", () => {
       const router = new TriageRouter({ model, agents });
       const decision = await router.route("Help me");
 
-      expect(decision.agentDef.name).toBe(researchAgent.name);
+      expect(decision.assignments[0].agentDef.name).toBe(researchAgent.name);
       expect(decision.confidence).toBe(0);
     });
   });
@@ -100,7 +100,7 @@ describe("TriageRouter", () => {
       const router = new TriageRouter({ model, agents });
       const decision = await router.route("Anything");
 
-      expect(decision.agentDef.name).toBe(researchAgent.name);
+      expect(decision.assignments[0].agentDef.name).toBe(researchAgent.name);
       expect(decision.confidence).toBe(0);
     });
   });
@@ -113,7 +113,7 @@ describe("TriageRouter", () => {
       const router = new TriageRouter({ model, agents });
       const decision = await router.route("Help");
 
-      expect(decision.agentDef.name).toBe(researchAgent.name);
+      expect(decision.assignments[0].agentDef.name).toBe(researchAgent.name);
       expect(decision.confidence).toBe(0);
     });
   });

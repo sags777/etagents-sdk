@@ -1,17 +1,42 @@
 import type { AgentDef } from "../../types/agent.js";
 
 // ---------------------------------------------------------------------------
+// RoutingAssignment — a single agent in a fan-out routing decision
+// ---------------------------------------------------------------------------
+
+/**
+ * RoutingAssignment — one agent assignment within a `RoutingDecision`.
+ *
+ * `parallel: true` means this assignment can run concurrently with other
+ * parallel assignments in the same decision.
+ *
+ * `subPrompt` overrides the user message for this specific agent — useful
+ * when different specialists need differently framed versions of the input.
+ */
+export interface RoutingAssignment {
+  agentDef: AgentDef;
+  /** Override the user message sent to this agent. Defaults to the original message. */
+  subPrompt?: string;
+  /** When true, `AgentRouter` runs this assignment concurrently with other parallel ones. */
+  parallel?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // RoutingDecision — result returned by any RoutingStrategy
 // ---------------------------------------------------------------------------
 
 /**
  * RoutingDecision — the output of a routing pass.
  *
+ * `assignments` is an ordered list of agents to run. Sequential assignments
+ * (parallel: false | undefined) run one-at-a-time; parallel ones are fanned
+ * out concurrently via `Promise.all()`.
+ *
  * `confidence` is a value in [0, 1] expressing how certain the strategy is
- * about the selected agent. Deterministic strategies always emit 1.
+ * about the selected agents. Deterministic strategies always emit 1.
  */
 export interface RoutingDecision {
-  agentDef: AgentDef;
+  assignments: RoutingAssignment[];
   confidence: number;
   reason: string;
 }
@@ -110,7 +135,7 @@ export class RuleRouter {
         for (const { pattern, agent } of rules) {
           if (pattern.test(message)) {
             return {
-              agentDef: agent,
+              assignments: [{ agentDef: agent, parallel: false }],
               confidence: 1,
               reason: `Pattern /${pattern.source}/ matched the input.`,
             };
@@ -119,7 +144,7 @@ export class RuleRouter {
 
         if (fallback) {
           return {
-            agentDef: fallback,
+            assignments: [{ agentDef: fallback, parallel: false }],
             confidence: 0.5,
             reason: "No rule matched — routed to fallback agent.",
           };

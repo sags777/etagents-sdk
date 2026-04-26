@@ -104,17 +104,21 @@ export class TriageRouter implements RoutingStrategy {
       if (!matched) {
         // Model returned an unrecognised name — fall back to first agent
         return {
-          agentDef: this.agents[0],
+          assignments: [{ agentDef: this.agents[0], parallel: false }],
           confidence: 0,
           reason: `Triage model returned unknown agent "${name}"; falling back to ${this.agents[0].name}.`,
         };
       }
 
-      return { agentDef: matched, confidence, reason };
+      return {
+        assignments: [{ agentDef: matched, parallel: false }],
+        confidence,
+        reason,
+      };
     } catch {
       // Fail-open: parse or network error → fall back to first agent
       return {
-        agentDef: this.agents[0],
+        assignments: [{ agentDef: this.agents[0], parallel: false }],
         confidence: 0,
         reason: `Triage model call failed; falling back to ${this.agents[0].name}.`,
       };

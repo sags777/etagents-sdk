@@ -178,7 +178,6 @@ export type { TriageRouterOptions } from "./orchestration/index.js";
 // ── Insight ────────────────────────────────────────────────────────
 
 export { runInsight } from "./insight/index.js";
-export { INSIGHT_PROMPTS } from "./insight/index.js";
 
 // ── HTTP / SSE ─────────────────────────────────────────────────────
 

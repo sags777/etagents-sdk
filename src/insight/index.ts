@@ -5,4 +5,3 @@
  */
 
 export { runInsight } from "./extractor/extractor.js";
-export { INSIGHT_PROMPTS } from "./prompts/prompts.js";

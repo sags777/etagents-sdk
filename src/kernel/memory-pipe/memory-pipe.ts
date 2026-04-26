@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { MemoryProvider, MemoryMatch, MemoryScope } from "../../interfaces/memory.js";
 import type { ModelProvider } from "../../interfaces/model.js";
+import { MEMORY_PIPE_HYDE_SYSTEM_PROMPT } from "../../prompts.js";
 
 // ---------------------------------------------------------------------------
 // MemoryPipe — retrieval injection and post-run indexing
@@ -58,10 +59,7 @@ export class MemoryPipe {
         const resp = await this.model.complete([
           {
             role: "system",
-            content:
-              "Generate a brief, concrete hypothetical answer to the user's question. " +
-              "This will be used as a search query to retrieve relevant memory. " +
-              "Respond with only the hypothetical answer text, nothing else.",
+            content: MEMORY_PIPE_HYDE_SYSTEM_PROMPT,
           },
           { role: "user", content: query },
         ]);

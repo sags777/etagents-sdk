@@ -1,40 +1,7 @@
 import type { AgentDef } from "../../types/agent.js";
 import type { ModelProvider } from "../../interfaces/model.js";
 import type { RoutingDecision, RoutingStrategy, RoutingContext } from "../rule-router/rule-router.js";
-
-// ---------------------------------------------------------------------------
-// Triage prompt
-// ---------------------------------------------------------------------------
-
-/**
- * Build the system prompt that instructs the model how to select an agent.
- *
- * Listed agents are formatted as a numbered catalogue so the model can refer
- * to them by name unambiguously.
- */
-function buildSystemPrompt(agents: AgentDef[]): string {
-  const catalogue = agents
-    .map((a, i) => `${i + 1}. ${a.name} — ${a.systemPrompt.slice(0, 120).replace(/\n/g, " ")}`)
-    .join("\n");
-
-  return `You are a routing coordinator. Your sole job is to read a user message and select the most suitable specialist agent to handle it.
-
-Available agents:
-${catalogue}
-
-Respond with ONLY a valid JSON object — no markdown, no commentary:
-
-{
-  "selectedAgent": "<exact agent name from the list above>",
-  "confidence": <number between 0 and 1>,
-  "reason": "<one sentence explaining the selection>"
-}
-
-Rules:
-- "selectedAgent" must exactly match one of the names in the list.
-- "confidence" must be 0–1; use values below 0.5 when the message is ambiguous.
-- If no agent clearly fits, select the closest match and lower confidence accordingly.`;
-}
+import { buildTriageRouterSystemPrompt } from "../../prompts.js";
 
 // ---------------------------------------------------------------------------
 // TriageRouter
@@ -70,7 +37,7 @@ export class TriageRouter implements RoutingStrategy {
     if (agents.length === 0) throw new Error("TriageRouter: agents array must not be empty");
     this.model = model;
     this.agents = agents;
-    this.systemPrompt = buildSystemPrompt(agents);
+    this.systemPrompt = buildTriageRouterSystemPrompt(agents);
   }
 
   async route(message: string, _context?: RoutingContext): Promise<RoutingDecision> {

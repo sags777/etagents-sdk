@@ -2,7 +2,7 @@ import type { Message } from "../../types/message.js";
 import type { ModelProvider } from "../../interfaces/model.js";
 import type { InsightConfig, InsightResult } from "../../types/insight.js";
 import { DEFAULT_CONFIG } from "../../config.js";
-import { INSIGHT_PROMPTS } from "../prompts/prompts.js";
+import { INSIGHT_PROMPTS } from "../../prompts.js";
 
 // ---------------------------------------------------------------------------
 // Constants

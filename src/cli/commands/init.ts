@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
+import { CLI_DEFAULT_AGENT_SYSTEM_PROMPT } from "../../prompts.js";
 
 export function register(program: Command): void {
   program
@@ -87,7 +88,7 @@ ${toolDefs}${mcpDefs}// --------------------------------------------------------
 
 const ${varName} = createAgent({
   name: "${name}",
-  systemPrompt: "You are a helpful assistant. Be concise and accurate.",
+  systemPrompt: "${CLI_DEFAULT_AGENT_SYSTEM_PROMPT}",
   tools: ${toolsList},
 ${mcpList}});
 

@@ -466,10 +466,10 @@ import { executeTool } from "@etagents/sdk";
 
 const result = await executeTool(searchDatabase, { query: "hello", limit: 5 });
 
-if (result.ok) {
-  console.log(result.data); // validated, typed result
+if (!result.isError) {
+  console.log(result.output); // validated, typed result
 } else {
-  console.error(result.error); // ToolError with message
+  console.error(result.output); // serialized tool error output
 }
 ```
 

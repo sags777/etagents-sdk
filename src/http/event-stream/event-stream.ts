@@ -3,7 +3,7 @@ import type { AgentDef } from "../../types/agent.js";
 import type { RunEvent } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
 import type { RestoreConfig } from "../../kernel/index.js";
-import type { StreamOptions } from "../types.js";
+import type { StreamOptions } from "../stream-options.js";
 
 // ---------------------------------------------------------------------------
 // SSE headers

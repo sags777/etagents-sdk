@@ -1,6 +1,7 @@
 import { SessionEventStream, SSE_HEADERS } from "../event-stream/event-stream.js";
-import type { StreamOptions } from "../types.js";
+import type { StreamOptions } from "../stream-options.js";
 import type { AgentDef } from "../../types/agent.js";
+import type { RunConfig } from "../../types/run.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Next.js App Router type surface
@@ -16,17 +17,19 @@ export interface NextRouteRequest {
 export type NextRouteHandler = (req: NextRouteRequest) => Promise<Response>;
 
 // ---------------------------------------------------------------------------
-// NextResponseOptions — extends StreamOptions with response-level controls
+// NextResponseOptions — mirrors StreamOptions with response-level controls
 // ---------------------------------------------------------------------------
 
 /**
  * NextResponseOptions — all options accepted by `toNextResponse()`.
  *
- * Extends `StreamOptions` with HTTP response-level controls so callers can
+ * Mirrors `StreamOptions` and adds HTTP response-level controls so callers can
  * add custom headers or override the status code without wrapping in a second
  * `new Response()`.
  */
-export interface NextResponseOptions extends StreamOptions {
+export interface NextResponseOptions {
+  /** Per-stream configuration — mirrors RunConfig minus the onEvent slot. */
+  config?: Omit<RunConfig, "onEvent">;
   /** Extra HTTP headers merged with `SSE_HEADERS`. */
   headers?: Record<string, string>;
   /** HTTP status code. Defaults to 200. */

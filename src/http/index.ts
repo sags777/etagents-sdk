@@ -5,7 +5,7 @@
  */
 
 export { SessionEventStream, SSE_HEADERS } from "./event-stream/event-stream.js";
-export type { StreamOptions } from "./types.js";
+export type { StreamOptions } from "./stream-options.js";
 
 export { SessionEventSource } from "./event-source/event-source.js";
 export type {

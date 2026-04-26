@@ -3,6 +3,7 @@ import type { ToolCallRecord } from "./tool.js";
 import type { TokenUsage } from "../interfaces/model.js";
 import type { BudgetConfig, BudgetEvent } from "./budget.js";
 import type { HitlConfig } from "./agent.js";
+import type { PendingApproval } from "./checkpoint.js";
 
 // ---------------------------------------------------------------------------
 // Status + exit codes
@@ -60,6 +61,12 @@ export interface RunResult {
   turns: number;
   status: RunStatus;
   totalUsage?: TokenUsage;
+  /** Checkpoint ID — populated when `status === "awaiting_approval"`. Pass to `continueRun()`. */
+  checkpointId?: string;
+  /** Pending HITL approvals — populated when `status === "awaiting_approval"`. */
+  pendingApprovals?: PendingApproval[];
+  /** Per-agent sub-results — populated by `AgentRouter.run()`. */
+  agentResults?: Record<string, RunResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +80,9 @@ export type RunEvent =
   | ToolResultEvent
   | BudgetEvent
   | ErrorEvent
-  | CompleteEvent;
+  | CompleteEvent
+  | AgentRoutedEvent
+  | AgentCompleteEvent;
 
 export interface TurnStartEvent {
   kind: "turn_start";
@@ -119,4 +128,21 @@ export interface RunState {
   messages: Message[];
   toolCallRecords: ToolCallRecord[];
   turns: number;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-agent orchestration events (emitted by AgentRouter, not the kernel)
+// ---------------------------------------------------------------------------
+
+export interface AgentRoutedEvent {
+  kind: "agent_routed";
+  agentName: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface AgentCompleteEvent {
+  kind: "agent_complete";
+  agentName: string;
+  result: RunResult;
 }

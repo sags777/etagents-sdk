@@ -97,25 +97,18 @@ export async function startRun(
           },
           agent.hitl.hitlStore ?? agent.store,
         );
-        emit({
-          kind: "complete",
-          result: {
-            response: "",
-            messages: state.messages,
-            toolCalls: state.toolCallRecords,
-            turns: state.turns,
-            status: "awaiting_approval",
-            totalUsage: ledger.state(),
-          },
-        });
-        return {
+        const suspendResult: RunResult = {
           response: "",
           messages: state.messages,
           toolCalls: state.toolCallRecords,
           turns: state.turns,
           status: "awaiting_approval",
           totalUsage: ledger.state(),
+          checkpointId,
+          pendingApprovals: result.pendingApprovals,
         };
+        emit({ kind: "complete", result: suspendResult });
+        return suspendResult;
       }
 
       // kind === "continue" → loop

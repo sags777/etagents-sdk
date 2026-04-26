@@ -41,3 +41,32 @@ export function toNextHandler(
     return new Response(body, { headers: SSE_HEADERS });
   };
 }
+
+// ---------------------------------------------------------------------------
+// toNextResponse
+// ---------------------------------------------------------------------------
+
+/**
+ * toNextResponse — wraps a `SessionEventStream` + input into a streaming SSE
+ * `Response`, giving the caller full control over request parsing.
+ *
+ * Use when `toNextHandler` is too opinionated — for example, when you need to
+ * parse a JSON body with multiple fields:
+ *
+ * ```ts
+ * export async function POST(req: Request) {
+ *   const { prompt, runId } = await req.json();
+ *   const stream = new SessionEventStream(agent);
+ *   stream.send("run_id", { runId });   // push run ID before kernel starts
+ *   return toNextResponse(stream, prompt, { config: { runId, signal: req.signal } });
+ * }
+ * ```
+ */
+export function toNextResponse(
+  stream: SessionEventStream,
+  input: string,
+  options?: StreamOptions,
+): Response {
+  const body = stream.stream(input, options);
+  return new Response(body, { headers: SSE_HEADERS });
+}

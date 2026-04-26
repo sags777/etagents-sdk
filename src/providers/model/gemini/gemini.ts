@@ -90,7 +90,7 @@ class SchemaTransformer {
     const out: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(obj)) {
-      if (["$schema", "$defs", "$ref", "$id", "$comment", "additionalProperties", "default", "examples"].includes(key)) {
+      if (["$schema", "$defs", "$ref", "$id", "$comment", "additionalProperties", "default", "examples", "exclusiveMinimum", "exclusiveMaximum"].includes(key)) {
         continue;
       }
 

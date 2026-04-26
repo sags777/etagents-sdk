@@ -34,6 +34,7 @@ interface CollectedTurn {
   toolCalls: ToolCall[];
   usage: TokenUsage;
   finishReason: FinishReason;
+  errorMsg?: string;
 }
 
 function zeroUsage(): TokenUsage {
@@ -50,6 +51,7 @@ async function collectStream(
   const toolCalls: ToolCall[] = [];
   let usage: TokenUsage = zeroUsage();
   let finishReason: FinishReason = "stop";
+  let errorMsg: string | undefined;
 
   for await (const chunk of stream) {
     if (signal?.aborted) break;
@@ -78,6 +80,7 @@ async function collectStream(
       case "finish":
         usage = chunk.usage;
         finishReason = chunk.finishReason;
+        errorMsg = (chunk as { errorMsg?: string }).errorMsg;
         break;
     }
   }
@@ -86,7 +89,7 @@ async function collectStream(
     emit?.({ kind: "text_done", text, turn: turn ?? 0 });
   }
 
-  return { text, toolCalls, usage, finishReason };
+  return { text, toolCalls, usage, finishReason, errorMsg };
 }
 
 function needsApproval(call: ToolCall, registry: ToolRegistry, hitl: HitlConfig): boolean {
@@ -141,6 +144,10 @@ export class TurnCycle {
 
     // 4. Collect stream — emits text_delta / text_done via ctx.emit as chunks arrive
     const collected = await collectStream(stream, ctx.signal, ctx.emit, turnNumber);
+
+    if (collected.finishReason === "error") {
+      throw new Error(collected.errorMsg ?? "Model returned an error response");
+    }
 
     // 5. Unmask response text
     const response = await ctx.fence.unmaskText(collected.text);

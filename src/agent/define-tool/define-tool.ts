@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ToolConfig, ToolDef, JsonSchema } from "../../types/tool.js";
+import type { ToolConfig, ToolDef, JsonSchema, ToolContext } from "../../types/tool.js";
 import { ToolError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
@@ -31,18 +31,21 @@ function zodToJsonSchema(schema: z.ZodType): JsonSchema {
  * `ToolError` rather than obscure type coercion bugs.
  */
 export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): ToolDef {
-  const { name, description, params, handler, sequential, timeoutMs } = config;
+  const { name, description, params, handler, sequential, timeoutMs, sensitive, cache } = config;
 
   const schema = zodToJsonSchema(params);
 
-  const wrappedHandler = async (rawArgs: Record<string, unknown>): Promise<string> => {
+  const wrappedHandler = async (
+    rawArgs: Record<string, unknown>,
+    context?: ToolContext,
+  ): Promise<string> => {
     const result = params.safeParse(rawArgs);
     if (!result.success) {
       throw new ToolError(
         `Invalid arguments for tool "${name}": ${result.error.message}`,
       );
     }
-    return handler(result.data as z.infer<T>);
+    return handler(result.data as z.infer<T>, context);
   };
 
   return {
@@ -52,5 +55,9 @@ export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): ToolDef 
     handler: wrappedHandler,
     sequential,
     timeout: timeoutMs,
+    sensitive,
+    cache: cache
+      ? { enabled: cache.enabled, ttlMs: cache.ttl != null ? cache.ttl * 1000 : cache.ttlMs }
+      : undefined,
   };
 }

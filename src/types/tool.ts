@@ -48,7 +48,7 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
   name: string;
   description: string;
   schema: JsonSchema;
-  handler: (args: TArgs) => Promise<string>;
+  handler: (args: TArgs, context?: ToolContext) => Promise<string>;
   sequential?: boolean;
   /** When true, HITL `mode: "sensitive"` will require approval before this tool runs */
   sensitive?: boolean;
@@ -73,9 +73,16 @@ export interface ToolConfig<T extends z.ZodType = z.ZodType> {
   description: string;
   /** Zod schema describing the tool's input parameters */
   params: T;
-  handler: (args: z.infer<T>) => Promise<string>;
+  handler: (args: z.infer<T>, context?: ToolContext) => Promise<string>;
   sequential?: boolean;
   timeoutMs?: number;
+  /** When true, HITL `mode: "sensitive"` will require approval before this tool runs */
+  sensitive?: boolean;
+  /**
+   * Tool-result cache config.
+   * `ttl` is in seconds; `ttlMs` is in milliseconds. `ttl` takes precedence when both are set.
+   */
+  cache?: { enabled: boolean; ttl?: number; ttlMs?: number };
 }
 
 // ---------------------------------------------------------------------------

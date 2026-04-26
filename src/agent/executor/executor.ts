@@ -19,7 +19,7 @@ import { DEFAULT_CONFIG } from "../../config.js";
 export async function executeTool(
   def: ToolDef,
   args: unknown,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecResult> {
   const startMs = Date.now();
   const timeoutMs = def.timeout ?? DEFAULT_CONFIG.toolTimeoutMs;
@@ -35,7 +35,7 @@ export async function executeTool(
 
   try {
     const output = await Promise.race([
-      def.handler(args as Record<string, unknown>),
+      def.handler(args as Record<string, unknown>, context),
       timeoutPromise,
     ]);
     return { output, isError: false, durationMs: Date.now() - startMs };

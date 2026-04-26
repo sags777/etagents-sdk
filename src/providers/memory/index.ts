@@ -6,3 +6,4 @@
 
 export { InMemory, type InMemoryEmbedder } from "./in-memory/in-memory.js";
 export { RedisMemory, type RedisMemoryConfig } from "./redis-memory/redis-memory.js";
+export { createRedisClient } from "../_redis.js";

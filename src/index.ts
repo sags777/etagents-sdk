@@ -76,6 +76,8 @@ export type {
   ErrorEvent,
   CompleteEvent,
   RunState,
+  AgentRoutedEvent,
+  AgentCompleteEvent,
 } from "./types/index.js";
 
 export type {
@@ -83,6 +85,7 @@ export type {
   LifecycleHooks,
   AgentConfig,
   AgentDef,
+  HookContext,
 } from "./types/index.js";
 
 export type { SessionSnapshot, SnapshotMeta } from "./types/index.js";
@@ -115,6 +118,10 @@ export { defineTool } from "./agent/index.js";
 export type { ToolConfig } from "./agent/index.js";
 export { executeTool } from "./agent/index.js";
 export type { ToolContext, ToolExecResult } from "./agent/index.js";
+export { agentAsTool } from "./agent/index.js";
+export type { AgentAsToolConfig } from "./agent/index.js";
+export { agentToManifest } from "./agent/index.js";
+export type { AgentManifest } from "./agent/index.js";
 
 // ── Kernel ─────────────────────────────────────────────────────────
 
@@ -144,6 +151,7 @@ export type { RedisMemoryConfig } from "./providers/memory/index.js";
 export { FileStore } from "./providers/store/index.js";
 export { RedisStore } from "./providers/store/index.js";
 export type { RedisStoreConfig } from "./providers/store/index.js";
+export { createRedisClient } from "./providers/store/index.js";
 
 export { RegexPrivacy } from "./providers/privacy/index.js";
 export { BUILTIN_RULES } from "./providers/privacy/index.js";
@@ -154,7 +162,12 @@ export type { PiiRule } from "./providers/privacy/index.js";
 export { AgentRouter } from "./orchestration/index.js";
 export { RuleRouter } from "./orchestration/index.js";
 export { TriageRouter } from "./orchestration/index.js";
-export type { RoutingDecision, RoutingStrategy, RoutingContext } from "./orchestration/index.js";
+export type {
+  RoutingDecision,
+  RoutingAssignment,
+  RoutingStrategy,
+  RoutingContext,
+} from "./orchestration/index.js";
 export type { TriageRouterOptions } from "./orchestration/index.js";
 
 // ── Insight ────────────────────────────────────────────────────────
@@ -167,8 +180,13 @@ export { INSIGHT_PROMPTS } from "./insight/index.js";
 export { SessionEventStream, SSE_HEADERS } from "./http/index.js";
 export type { StreamOptions } from "./http/index.js";
 export { SessionEventSource } from "./http/index.js";
-export type { ReadyState, SessionEventHandler } from "./http/index.js";
-export { toNextHandler } from "./http/index.js";
+export type {
+  ReadyState,
+  SessionEventHandler,
+  SessionEventSourceOptions,
+  EtaEventMap,
+} from "./http/index.js";
+export { toNextHandler, toNextResponse } from "./http/index.js";
 export type { NextRouteRequest, NextRouteHandler } from "./http/index.js";
 export { toExpressHandler } from "./http/index.js";
 export type { ExpressRequest, ExpressResponse, ExpressHandler } from "./http/index.js";

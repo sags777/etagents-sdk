@@ -9,3 +9,7 @@ export type { ToolConfig } from "./define-tool/define-tool.js";
 export { executeTool } from "./executor/executor.js";
 export type { ToolContext, ToolExecResult } from "./executor/executor.js";
 export { createAgent } from "./create-agent/create-agent.js";
+export { agentAsTool } from "./agent-as-tool/agent-as-tool.js";
+export type { AgentAsToolConfig } from "./agent-as-tool/agent-as-tool.js";
+export { agentToManifest } from "./manifest.js";
+export type { AgentManifest } from "./manifest.js";

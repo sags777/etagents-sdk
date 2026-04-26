@@ -7,5 +7,10 @@
 export { AgentRouter } from "./agent-router/agent-router.js";
 export { RuleRouter } from "./rule-router/rule-router.js";
 export { TriageRouter } from "./triage-router/triage-router.js";
-export type { RoutingDecision, RoutingStrategy, RoutingContext } from "./rule-router/rule-router.js";
+export type {
+  RoutingDecision,
+  RoutingAssignment,
+  RoutingStrategy,
+  RoutingContext,
+} from "./rule-router/rule-router.js";
 export type { TriageRouterOptions } from "./triage-router/triage-router.js";

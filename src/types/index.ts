@@ -26,6 +26,8 @@ export type {
   ErrorEvent,
   CompleteEvent,
   RunState,
+  AgentRoutedEvent,
+  AgentCompleteEvent,
 } from "./run.js";
 
 export type {
@@ -33,6 +35,7 @@ export type {
   LifecycleHooks,
   AgentConfig,
   AgentDef,
+  HookContext,
 } from "./agent.js";
 
 export type {

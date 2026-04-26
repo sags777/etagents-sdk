@@ -1,3 +1,7 @@
+import { z } from "zod";
+import type { StoreProvider } from "../interfaces/store.js";
+import type { Message } from "./message.js";
+
 // ---------------------------------------------------------------------------
 // JSON Schema (Draft 7 subset)
 // ---------------------------------------------------------------------------
@@ -64,6 +68,16 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
   };
 }
 
+export interface ToolConfig<T extends z.ZodType = z.ZodType> {
+  name: string;
+  description: string;
+  /** Zod schema describing the tool's input parameters */
+  params: T;
+  handler: (args: z.infer<T>) => Promise<string>;
+  sequential?: boolean;
+  timeoutMs?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Tool call record (persisted in run state)
 // ---------------------------------------------------------------------------
@@ -75,4 +89,24 @@ export interface ToolCallRecord {
   result: string;
   durationMs: number;
   agentName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Tool execution
+// ---------------------------------------------------------------------------
+
+export interface ToolContext {
+  runId: string;
+  agentName: string;
+  /** Read-only snapshot of the current message history */
+  messages: readonly Message[];
+  metadata?: Record<string, unknown>;
+  /** Agent's store — used for tool-result caching when `tool.cache.enabled`. */
+  store?: StoreProvider;
+}
+
+export interface ToolExecResult {
+  output: string;
+  isError: boolean;
+  durationMs: number;
 }

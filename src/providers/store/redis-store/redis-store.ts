@@ -106,3 +106,49 @@ export class RedisStore implements StoreProvider {
     return `eta:store:${this.ns}:${key}`;
   }
 }
+
+// ---------------------------------------------------------------------------
+// createRedisStore — lazy synchronous factory
+// ---------------------------------------------------------------------------
+
+/**
+ * createRedisStore — synchronous factory that returns a `StoreProvider` proxy.
+ *
+ * Defers `RedisStore.connect()` until the first `read()`, `write()`, `remove()`,
+ * or `list()` call.  The connection promise is cached — all subsequent calls
+ * reuse the same connection, so at most one TCP connection is opened.
+ *
+ * Use this instead of `await RedisStore.connect()` when you need a
+ * module-level singleton that works in synchronous module init contexts
+ * (e.g. Next.js route files, top-level `const store = createRedisStore(...)`).
+ *
+ * ```ts
+ * const store = createRedisStore({ url: process.env.REDIS_URL!, namespace: "app" });
+ * const agent = createAgent({ name: "bot", systemPrompt: "...", store });
+ * ```
+ */
+export function createRedisStore(config: RedisStoreConfig): StoreProvider {
+  let connectPromise: Promise<RedisStore> | null = null;
+
+  function getStore(): Promise<RedisStore> {
+    if (!connectPromise) {
+      connectPromise = RedisStore.connect(config);
+    }
+    return connectPromise;
+  }
+
+  return {
+    async read<T = unknown>(key: string): Promise<T | null> {
+      return (await getStore()).read<T>(key);
+    },
+    async write<T = unknown>(key: string, value: T, options?: WriteOptions): Promise<void> {
+      return (await getStore()).write<T>(key, value, options);
+    },
+    async remove(key: string): Promise<void> {
+      return (await getStore()).remove(key);
+    },
+    async list(prefix: string): Promise<string[]> {
+      return (await getStore()).list(prefix);
+    },
+  };
+}

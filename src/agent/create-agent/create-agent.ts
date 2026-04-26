@@ -4,6 +4,7 @@ import type { StoreProvider } from "../../interfaces/store.js";
 import type { PrivacyProvider, PrivacyMap } from "../../interfaces/privacy.js";
 import type { AgentConfig, AgentDef } from "../../types/agent.js";
 import { DEFAULT_CONFIG } from "../../config.js";
+import { ModelError } from "../../errors.js";
 import { AnthropicModel } from "../../providers/model/anthropic/anthropic.js";
 import { OpenAIModel } from "../../providers/model/openai/openai.js";
 import { GeminiModel } from "../../providers/model/gemini/gemini.js";
@@ -89,8 +90,10 @@ function resolveModel(model: ModelProvider | string | undefined): ModelProvider 
     });
   }
 
-  throw new Error(
-    `Unrecognised model shorthand: "${id}". Pass a ModelProvider instance or a known model ID (claude-*, gpt-*, gemini-*).`,
+  throw new ModelError(
+    `Unrecognized model string "${id}". ` +
+    `Supported prefixes: claude-* (ANTHROPIC_API_KEY), gpt-* / o1* / o3* (OPENAI_API_KEY), gemini-* (GEMINI_API_KEY). ` +
+    `To use a custom model, pass a ModelProvider instance instead of a string.`,
   );
 }
 

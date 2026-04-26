@@ -1,5 +1,7 @@
 import type { ModelProvider, StreamChunk, TokenUsage, FinishReason } from "../../interfaces/model.js";
+import type { StoreProvider } from "../../interfaces/store.js";
 import type { ToolCall, ToolResult } from "../../types/message.js";
+import type { TurnCycleContext } from "../../types/kernel.js";
 import type { ToolCallRecord } from "../../types/tool.js";
 import type { RunState, RunEvent } from "../../types/run.js";
 import type { HitlConfig, LifecycleHooks, HookContext } from "../../types/agent.js";
@@ -10,7 +12,7 @@ import type { PrivacyFence } from "../privacy-fence/privacy-fence.js";
 import type { BudgetLedger } from "../budget-ledger/budget-ledger.js";
 import { safeHook } from "../lifecycle/lifecycle.js";
 import { routeTool } from "../tool-router/tool-router.js";
-import type { ToolContext } from "../../agent/executor/executor.js";
+import type { ToolContext } from "../../types/tool.js";
 import { nanoid } from "nanoid";
 
 // ---------------------------------------------------------------------------
@@ -22,27 +24,6 @@ export type TurnResult =
   | { kind: "done"; response: string }
   | { kind: "suspend"; pendingApprovals: PendingApproval[] }
   | { kind: "budget"; lastResponse: string };
-
-// ---------------------------------------------------------------------------
-// TurnCycleContext — all dependencies injected per run
-// ---------------------------------------------------------------------------
-
-export interface TurnCycleContext {
-  model: ModelProvider;
-  registry: ToolRegistry;
-  hub: McpHub;
-  fence: PrivacyFence;
-  ledger: BudgetLedger;
-  hooks: LifecycleHooks;
-  hitl: HitlConfig;
-  agentName: string;
-  runId: string;
-  emit: (event: RunEvent) => void;
-  signal?: AbortSignal;
-  maxTokens: number;
-  /** Agent's store — passed through to ToolContext for tool-result caching. */
-  store?: import("../../interfaces/store.js").StoreProvider;
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -62,6 +43,8 @@ function zeroUsage(): TokenUsage {
 async function collectStream(
   stream: AsyncIterable<StreamChunk>,
   signal?: AbortSignal,
+  emit?: (event: RunEvent) => void,
+  turn?: number,
 ): Promise<CollectedTurn> {
   let text = "";
   const toolCalls: ToolCall[] = [];
@@ -74,6 +57,7 @@ async function collectStream(
     switch (chunk.type) {
       case "text":
         text += chunk.delta;
+        emit?.({ kind: "text_delta", delta: chunk.delta, turn: turn ?? 0 });
         break;
 
       case "tool_start":
@@ -96,6 +80,10 @@ async function collectStream(
         finishReason = chunk.finishReason;
         break;
     }
+  }
+
+  if (text.length > 0) {
+    emit?.({ kind: "text_done", text, turn: turn ?? 0 });
   }
 
   return { text, toolCalls, usage, finishReason };
@@ -151,8 +139,8 @@ export class TurnCycle {
       },
     );
 
-    // 4. Collect stream
-    const collected = await collectStream(stream, ctx.signal);
+    // 4. Collect stream — emits text_delta / text_done via ctx.emit as chunks arrive
+    const collected = await collectStream(stream, ctx.signal, ctx.emit, turnNumber);
 
     // 5. Unmask response text
     const response = await ctx.fence.unmaskText(collected.text);

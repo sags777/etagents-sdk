@@ -3,10 +3,12 @@ import { buildRunContext } from "../context/context.js";
 import { McpHub } from "../mcp-hub/mcp-hub.js";
 import { TurnCycle } from "../turn-cycle/turn-cycle.js";
 import { persistRun, persistSuspend } from "../persist/persist.js";
-import { exitCodeToStatus, createRunServices, buildTurnCycleContext } from "../_shared/_shared.js";
+import { exitCodeToStatus, createRunServices, buildTurnCycleContext, applyDecisions } from "../_shared/_shared.js";
+import { runInsight } from "../../insight/extractor/extractor.js";
 import type { AgentDef } from "../../types/agent.js";
 import type { RunConfig, RunResult, RunState, ExitCode } from "../../types/run.js";
 import type { SessionSnapshot } from "../../types/session.js";
+import type { ToolContext } from "../../types/tool.js";
 
 // ---------------------------------------------------------------------------
 // startRun — full kernel entry point
@@ -85,6 +87,21 @@ export async function startRun(
       }
 
       if (result.kind === "suspend") {
+        // callback mode — inline approval: call onApprove, apply decisions, continue
+        if (agent.hitl.mode === "callback" && agent.hitl.onApprove) {
+          const decisions = await agent.hitl.onApprove(result.pendingApprovals);
+          const toolContext: ToolContext = {
+            runId: ctx.runId,
+            agentName: agent.name,
+            messages: state.messages,
+            store: agent.store,
+          };
+          await applyDecisions(result.pendingApprovals, decisions, state, registry, hub, toolContext);
+          // Continue the loop — decisions applied, next cycle will proceed
+          continue;
+        }
+
+        // Default suspend path — persist checkpoint and return
         exitCode = "SUSPEND";
         const checkpointId = nanoid();
         const snapshot = buildSessionSnapshot(ctx.runId, state, ctx.metadata);
@@ -119,6 +136,19 @@ export async function startRun(
     }
 
     const status = exitCodeToStatus(exitCode);
+
+    // Post-run insight — index facts/summary into memory for future retrieval (fire-and-forget)
+    const insightCfg = agent.insight;
+    if (insightCfg && Object.keys(insightCfg).length > 0) {
+      void runInsight(state.messages, agent.model, insightCfg, state.turns).then((result) => {
+        const toIndex = insightCfg.injectSummaryOnly
+          ? (result.summary ? [result.summary] : [])
+          : [...result.facts, ...result.userFacts];
+        pipe.index(toIndex);
+      }).catch(() => {
+        // Fail-open — insight errors must not break the run result
+      });
+    }
 
     // Persist session snapshot (best-effort)
     try {

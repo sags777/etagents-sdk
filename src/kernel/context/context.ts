@@ -1,19 +1,7 @@
 import { nanoid } from "nanoid";
 import type { AgentDef } from "../../types/agent.js";
+import type { RunContext } from "../../types/kernel.js";
 import type { RunConfig } from "../../types/run.js";
-
-// ---------------------------------------------------------------------------
-// RunContext — immutable, assembled once per startRun call
-// ---------------------------------------------------------------------------
-
-export interface RunContext {
-  readonly agent: AgentDef;
-  readonly runId: string;
-  readonly maxTurns: number;
-  readonly maxTokens: number;
-  readonly signal?: AbortSignal;
-  readonly metadata: Record<string, unknown>;
-}
 
 /**
  * buildRunContext — merges agent defaults with per-run overrides.

@@ -71,6 +71,8 @@ export type {
   RunEvent,
   TurnStartEvent,
   TurnEndEvent,
+  TextDeltaEvent,
+  TextDoneEvent,
   ToolCallEvent,
   ToolResultEvent,
   ErrorEvent,
@@ -114,6 +116,7 @@ export {
 // ── Agent API ──────────────────────────────────────────────────────
 
 export { createAgent } from "./agent/index.js";
+export { cloneAgent } from "./agent/index.js";
 export { defineTool } from "./agent/index.js";
 export type { ToolConfig } from "./agent/index.js";
 export { executeTool } from "./agent/index.js";
@@ -149,13 +152,15 @@ export { RedisMemory } from "./providers/memory/index.js";
 export type { RedisMemoryConfig } from "./providers/memory/index.js";
 
 export { FileStore } from "./providers/store/index.js";
-export { RedisStore } from "./providers/store/index.js";
+export { RedisStore, createRedisStore } from "./providers/store/index.js";
 export type { RedisStoreConfig } from "./providers/store/index.js";
 export { createRedisClient } from "./providers/store/index.js";
 
 export { RegexPrivacy } from "./providers/privacy/index.js";
 export { BUILTIN_RULES } from "./providers/privacy/index.js";
 export type { PiiRule } from "./providers/privacy/index.js";
+export { createPrivacy } from "./providers/privacy/index.js";
+export type { BuiltInCategory, CreatePrivacyOptions } from "./providers/privacy/index.js";
 
 // ── Orchestration ──────────────────────────────────────────────────
 
@@ -187,9 +192,9 @@ export type {
   EtaEventMap,
 } from "./http/index.js";
 export { toNextHandler, toNextResponse } from "./http/index.js";
-export type { NextRouteRequest, NextRouteHandler } from "./http/index.js";
+export type { NextRouteRequest, NextRouteHandler, NextResponseOptions } from "./http/index.js";
 export { toExpressHandler } from "./http/index.js";
-export type { ExpressRequest, ExpressResponse, ExpressHandler } from "./http/index.js";
+export type { ExpressRequest, ExpressResponse, ExpressHandler, ExpressHandlerOptions } from "./http/index.js";
 
 // ── MCP ────────────────────────────────────────────────────────────
 

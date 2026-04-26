@@ -5,7 +5,8 @@ import type {
   EncryptedMap,
 } from "../../../interfaces/privacy.js";
 import { PrivacyError } from "../../../errors.js";
-import { BUILTIN_RULES, type PiiRule } from "../rules/rules.js";
+import type { PiiRule } from "../types.js";
+import { BUILTIN_RULES } from "../rules/rules.js";
 
 /**
  * Matches any placeholder produced by RegexPrivacy.

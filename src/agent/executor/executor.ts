@@ -1,31 +1,5 @@
-import type { ToolDef } from "../../types/tool.js";
-import type { Message } from "../../types/message.js";
-import type { StoreProvider } from "../../interfaces/store.js";
+import type { ToolDef, ToolContext, ToolExecResult } from "../../types/tool.js";
 import { DEFAULT_CONFIG } from "../../config.js";
-
-// ---------------------------------------------------------------------------
-// ToolContext — ambient info injected by the kernel on every call
-// ---------------------------------------------------------------------------
-
-export interface ToolContext {
-  runId: string;
-  agentName: string;
-  /** Read-only snapshot of the current message history */
-  messages: readonly Message[];
-  metadata?: Record<string, unknown>;
-  /** Agent's store — used for tool-result caching when `tool.cache.enabled`. */
-  store?: StoreProvider;
-}
-
-// ---------------------------------------------------------------------------
-// ToolExecResult
-// ---------------------------------------------------------------------------
-
-export interface ToolExecResult {
-  output: string;
-  isError: boolean;
-  durationMs: number;
-}
 
 // ---------------------------------------------------------------------------
 // executeTool

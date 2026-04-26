@@ -2,12 +2,11 @@ import { buildRunContext } from "../context/context.js";
 import { McpHub } from "../mcp-hub/mcp-hub.js";
 import { TurnCycle } from "../turn-cycle/turn-cycle.js";
 import { loadSuspend, removeSuspend, persistRun } from "../persist/persist.js";
-import { routeTool } from "../tool-router/tool-router.js";
-import { exitCodeToStatus, createRunServices, buildTurnCycleContext } from "../_shared/_shared.js";
+import { exitCodeToStatus, createRunServices, buildTurnCycleContext, applyDecisions } from "../_shared/_shared.js";
 import type { AgentDef } from "../../types/agent.js";
 import type { RunResult, RunState, RunEvent, ExitCode } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
-import type { ToolContext } from "../../agent/executor/executor.js";
+import type { ToolContext } from "../../types/tool.js";
 import { CheckpointError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
@@ -83,32 +82,8 @@ export async function continueRun(
       messages: state.messages,
     };
 
-    // Apply approval decisions
-    for (const pa of snapshot.pendingApprovals) {
-      const decision = decisionMap.get(pa.toolCallId)!;
-
-      if (decision.approved) {
-        // Execute the tool now
-        const result = await routeTool(
-          { id: pa.toolCallId, name: pa.name, args: pa.args },
-          registry,
-          hub,
-          toolContext,
-        );
-        state.messages.push({
-          role: "tool",
-          content: result.content,
-          toolCallId: result.toolCallId,
-        });
-      } else {
-        // Inject synthetic rejection
-        state.messages.push({
-          role: "tool",
-          content: `Tool call rejected by human reviewer.`,
-          toolCallId: pa.toolCallId,
-        });
-      }
-    }
+    // Apply approval decisions using shared helper
+    await applyDecisions(snapshot.pendingApprovals, decisions, state, registry, hub, toolContext);
 
     // Remove the snapshot — it will be replaced by a new session snapshot
     await removeSuspend(checkpointId, store);
@@ -188,4 +163,3 @@ export async function continueRun(
     await hub.disconnect();
   }
 }
-

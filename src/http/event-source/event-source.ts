@@ -1,6 +1,14 @@
 import type { CompleteEvent, RunEvent } from "../../types/run.js";
 import type { BudgetEvent } from "../../types/budget.js";
-import type { TurnStartEvent, TurnEndEvent, ToolCallEvent, ToolResultEvent, ErrorEvent } from "../../types/run.js";
+import type {
+  TurnStartEvent,
+  TurnEndEvent,
+  TextDeltaEvent,
+  TextDoneEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+  ErrorEvent,
+} from "../../types/run.js";
 
 // ---------------------------------------------------------------------------
 // ReadyState
@@ -38,6 +46,8 @@ export interface SessionEventSourceOptions {
  * EtaEventMap — maps SSE wire event names to their payload types.
  *
  * `run.status`  → turn_start, turn_end, warning, exceeded events
+ * `run.text.delta` → text_delta events
+ * `run.text.done`  → text_done events
  * `tool.invoke` → tool_call event
  * `tool.result` → tool_result event
  * `run.error`   → error event
@@ -45,6 +55,8 @@ export interface SessionEventSourceOptions {
  */
 export interface EtaEventMap {
   "run.status": TurnStartEvent | TurnEndEvent | BudgetEvent;
+  "run.text.delta": TextDeltaEvent;
+  "run.text.done": TextDoneEvent;
   "tool.invoke": ToolCallEvent;
   "tool.result": ToolResultEvent;
   "run.error": ErrorEvent;

@@ -1,7 +1,7 @@
 import type { ToolCall, ToolResult } from "../../types/message.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import type { ToolContext } from "../../agent/executor/executor.js";
+import type { ToolContext } from "../../types/tool.js";
 import { executeTool } from "../../agent/executor/executor.js";
 
 // ---------------------------------------------------------------------------

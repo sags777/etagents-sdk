@@ -10,7 +10,10 @@ export type {
   JsonSchema,
   JsonSchemaType,
   ToolDef,
+  ToolConfig,
   ToolCallRecord,
+  ToolContext,
+  ToolExecResult,
 } from "./tool.js";
 
 export type {
@@ -21,6 +24,8 @@ export type {
   RunEvent,
   TurnStartEvent,
   TurnEndEvent,
+  TextDeltaEvent,
+  TextDoneEvent,
   ToolCallEvent,
   ToolResultEvent,
   ErrorEvent,
@@ -64,3 +69,5 @@ export type {
 } from "./mcp.js";
 
 export type { InsightConfig, InsightResult } from "./insight.js";
+
+export type { RunContext, TurnCycleContext } from "./kernel.js";

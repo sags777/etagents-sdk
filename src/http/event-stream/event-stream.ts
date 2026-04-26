@@ -1,8 +1,9 @@
 import { startRun, continueRun } from "../../kernel/index.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunEvent } from "../../types/run.js";
+import type { RunEvent } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
 import type { RestoreConfig } from "../../kernel/index.js";
+import type { StreamOptions } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // SSE headers
@@ -33,6 +34,10 @@ function toSseName(event: RunEvent): string {
     case "agent_routed":
     case "agent_complete":
       return "run.status";
+    case "text_delta":
+      return "run.text.delta";
+    case "text_done":
+      return "run.text.done";
     case "tool_call":
       return "tool.invoke";
     case "tool_result":
@@ -55,15 +60,6 @@ function encodeError(message: string): Uint8Array {
     message,
     code: "STREAM_ERROR",
   });
-}
-
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
-/** Per-stream configuration — mirrors RunConfig minus the onEvent slot. */
-export interface StreamOptions {
-  config?: Omit<RunConfig, "onEvent">;
 }
 
 // ---------------------------------------------------------------------------

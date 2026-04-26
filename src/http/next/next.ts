@@ -1,4 +1,5 @@
-import { SessionEventStream, SSE_HEADERS, type StreamOptions } from "../event-stream/event-stream.js";
+import { SessionEventStream, SSE_HEADERS } from "../event-stream/event-stream.js";
+import type { StreamOptions } from "../types.js";
 import type { AgentDef } from "../../types/agent.js";
 
 // ---------------------------------------------------------------------------
@@ -13,6 +14,24 @@ export interface NextRouteRequest {
 
 /** Route handler function type for the Next.js App Router. */
 export type NextRouteHandler = (req: NextRouteRequest) => Promise<Response>;
+
+// ---------------------------------------------------------------------------
+// NextResponseOptions — extends StreamOptions with response-level controls
+// ---------------------------------------------------------------------------
+
+/**
+ * NextResponseOptions — all options accepted by `toNextResponse()`.
+ *
+ * Extends `StreamOptions` with HTTP response-level controls so callers can
+ * add custom headers or override the status code without wrapping in a second
+ * `new Response()`.
+ */
+export interface NextResponseOptions extends StreamOptions {
+  /** Extra HTTP headers merged with `SSE_HEADERS`. */
+  headers?: Record<string, string>;
+  /** HTTP status code. Defaults to 200. */
+  status?: number;
+}
 
 // ---------------------------------------------------------------------------
 // toNextHandler
@@ -58,15 +77,19 @@ export function toNextHandler(
  *   const { prompt, runId } = await req.json();
  *   const stream = new SessionEventStream(agent);
  *   stream.send("run_id", { runId });   // push run ID before kernel starts
- *   return toNextResponse(stream, prompt, { config: { runId, signal: req.signal } });
+ *   return toNextResponse(stream, prompt, {
+ *     config: { runId, signal: req.signal },
+ *     headers: { "X-Run-Id": runId },
+ *   });
  * }
  * ```
  */
 export function toNextResponse(
   stream: SessionEventStream,
   input: string,
-  options?: StreamOptions,
+  options?: NextResponseOptions,
 ): Response {
   const body = stream.stream(input, options);
-  return new Response(body, { headers: SSE_HEADERS });
+  const headers: Record<string, string> = { ...SSE_HEADERS, ...options?.headers };
+  return new Response(body, { headers, status: options?.status ?? 200 });
 }

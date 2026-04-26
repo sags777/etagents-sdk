@@ -1,20 +1,6 @@
 import { z } from "zod";
-import type { ToolDef, JsonSchema } from "../../types/tool.js";
+import type { ToolConfig, ToolDef, JsonSchema } from "../../types/tool.js";
 import { ToolError } from "../../errors.js";
-
-// ---------------------------------------------------------------------------
-// ToolConfig — user-facing input to defineTool
-// ---------------------------------------------------------------------------
-
-export interface ToolConfig<T extends z.ZodType> {
-  name: string;
-  description: string;
-  /** Zod schema describing the tool's input parameters */
-  params: T;
-  handler: (args: z.infer<T>) => Promise<string>;
-  sequential?: boolean;
-  timeoutMs?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Internal Zod → JsonSchema converter

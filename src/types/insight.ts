@@ -22,6 +22,12 @@ export interface InsightConfig {
    * memory, improving recall via the HyDE (Hypothetical Document Embeddings) technique.
    */
   hypothesize?: boolean;
+  /**
+   * When true, only the condensed `InsightResult.summary` is indexed into
+   * memory after a run (instead of all extracted `facts[]`).
+   * Use for low-context models where verbose fact lists are expensive on retrieval.
+   */
+  injectSummaryOnly?: boolean;
   /** Custom prompt overrides for fact extraction and summarisation */
   prompts?: {
     extractFacts?: string;

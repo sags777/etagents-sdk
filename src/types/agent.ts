@@ -6,6 +6,7 @@ import type { ToolDef } from "./tool.js";
 import type { Message, ToolCall, ToolResult } from "./message.js";
 import type { InsightConfig } from "./insight.js";
 import type { McpServerConfig } from "./mcp.js";
+import type { PendingApproval, ApprovalDecision } from "./checkpoint.js";
 
 // ---------------------------------------------------------------------------
 // HITL config
@@ -17,12 +18,20 @@ import type { McpServerConfig } from "./mcp.js";
  * `mode: "none"` disables HITL entirely (default).
  * `mode: "tool"` requires approval before every tool call.
  * `mode: "sensitive"` requires approval only for tools marked `sensitive`.
+ * `mode: "callback"` pauses the run, calls `onApprove(pending)`, applies the
+ *   returned decisions, and continues — all within the same `startRun()` call.
+ *   No checkpoint or store required.
  */
 export interface HitlConfig {
-  mode: "none" | "tool" | "sensitive";
+  mode: "none" | "tool" | "sensitive" | "callback";
   timeoutMs?: number;
   /** Store used to persist pending approvals across process restarts */
   hitlStore?: StoreProvider;
+  /**
+   * Synchronous in-process approval handler. Only used when `mode === "callback"`.
+   * Receives all pending approvals and must return a decision for each one.
+   */
+  onApprove?: (pending: PendingApproval[]) => Promise<ApprovalDecision[]>;
 }
 
 // ---------------------------------------------------------------------------

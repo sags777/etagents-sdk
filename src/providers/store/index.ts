@@ -5,5 +5,5 @@
  */
 
 export { FileStore } from "./file-store/file-store.js";
-export { RedisStore, type RedisStoreConfig } from "./redis-store/redis-store.js";
+export { RedisStore, createRedisStore, type RedisStoreConfig } from "./redis-store/redis-store.js";
 export { createRedisClient } from "../_redis.js";

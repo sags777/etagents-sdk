@@ -1,13 +1,16 @@
 import type { ExitCode, RunResult, RunEvent } from "../../types/run.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunContext } from "../context/context.js";
-import type { TurnCycleContext } from "../turn-cycle/turn-cycle.js";
+import type { RunContext, TurnCycleContext } from "../../types/kernel.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import type { MemoryScope } from "../../interfaces/memory.js";
+import type { RunState } from "../../types/run.js";
+import type { ApprovalDecision, PendingApproval } from "../../types/checkpoint.js";
+import type { ToolContext } from "../../types/tool.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import { PrivacyFence } from "../privacy-fence/privacy-fence.js";
 import { MemoryPipe } from "../memory-pipe/memory-pipe.js";
 import { BudgetLedger } from "../budget-ledger/budget-ledger.js";
+import { routeTool } from "../tool-router/tool-router.js";
 
 // ---------------------------------------------------------------------------
 // Kernel-private shared utilities
@@ -87,4 +90,45 @@ export function buildTurnCycleContext(
     maxTokens: ctx.maxTokens,
     store: agent.store,
   };
+}
+
+/**
+ * applyDecisions — executes approved tool calls and injects synthetic
+ * rejections for denied ones, appending results to `state.messages`.
+ *
+ * Shared by `continueRun` (restore path) and the `"callback"` HITL inline path.
+ */
+export async function applyDecisions(
+  pendingApprovals: PendingApproval[],
+  decisions: ApprovalDecision[],
+  state: RunState,
+  registry: ToolRegistry,
+  hub: McpHub,
+  toolContext: ToolContext,
+): Promise<void> {
+  const decisionMap = new Map(decisions.map((d) => [d.toolCallId, d]));
+
+  for (const pa of pendingApprovals) {
+    const decision = decisionMap.get(pa.toolCallId);
+
+    if (decision?.approved) {
+      const result = await routeTool(
+        { id: pa.toolCallId, name: pa.name, args: pa.args },
+        registry,
+        hub,
+        toolContext,
+      );
+      state.messages.push({
+        role: "tool",
+        content: result.content,
+        toolCallId: result.toolCallId,
+      });
+    } else {
+      state.messages.push({
+        role: "tool",
+        content: `Tool call rejected by human reviewer.`,
+        toolCallId: pa.toolCallId,
+      });
+    }
+  }
 }

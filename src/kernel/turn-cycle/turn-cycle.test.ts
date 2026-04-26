@@ -6,7 +6,7 @@ import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
 import { createAgent } from "../../agent/create-agent/create-agent.js";
 import { defineTool } from "../../agent/define-tool/define-tool.js";
-import type { TurnCycleContext } from "./turn-cycle.js";
+import type { TurnCycleContext } from "../../types/kernel.js";
 import type { RunState } from "../../types/run.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import { z } from "zod";

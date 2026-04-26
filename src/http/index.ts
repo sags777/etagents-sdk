@@ -5,7 +5,7 @@
  */
 
 export { SessionEventStream, SSE_HEADERS } from "./event-stream/event-stream.js";
-export type { StreamOptions } from "./event-stream/event-stream.js";
+export type { StreamOptions } from "./types.js";
 
 export { SessionEventSource } from "./event-source/event-source.js";
 export type {
@@ -16,7 +16,7 @@ export type {
 } from "./event-source/event-source.js";
 
 export { toNextHandler, toNextResponse } from "./next/next.js";
-export type { NextRouteRequest, NextRouteHandler } from "./next/next.js";
+export type { NextRouteRequest, NextRouteHandler, NextResponseOptions } from "./next/next.js";
 
 export { toExpressHandler } from "./express/express.js";
-export type { ExpressRequest, ExpressResponse, ExpressHandler } from "./express/express.js";
+export type { ExpressRequest, ExpressResponse, ExpressHandler, ExpressHandlerOptions } from "./express/express.js";

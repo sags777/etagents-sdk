@@ -76,6 +76,8 @@ export interface RunResult {
 export type RunEvent =
   | TurnStartEvent
   | TurnEndEvent
+  | TextDeltaEvent
+  | TextDoneEvent
   | ToolCallEvent
   | ToolResultEvent
   | BudgetEvent
@@ -93,6 +95,32 @@ export interface TurnEndEvent {
   kind: "turn_end";
   turn: number;
   usage: TokenUsage;
+}
+
+/**
+ * TextDeltaEvent — fired for each incremental text chunk emitted by the model.
+ *
+ * Callers can use these to stream output progressively (typing indicator, live
+ * preview) without setting up SSE transport.  Events fire in order within a turn.
+ */
+export interface TextDeltaEvent {
+  kind: "text_delta";
+  /** Incremental text fragment from the model. */
+  delta: string;
+  turn: number;
+}
+
+/**
+ * TextDoneEvent — fired once when the model has finished emitting text for a turn.
+ *
+ * `text` is the full accumulated text for the turn (pre-unmask).
+ * Only emitted when the model produced at least one text chunk.
+ */
+export interface TextDoneEvent {
+  kind: "text_done";
+  /** Full accumulated text for this turn (before PII unmasking). */
+  text: string;
+  turn: number;
 }
 
 export interface ToolCallEvent {

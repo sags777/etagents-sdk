@@ -80,6 +80,7 @@ export async function continueRun(
       runId: ctx.runId,
       agentName: agent.name,
       messages: state.messages,
+      metadata: ctx.metadata,
     };
 
     // Apply approval decisions using shared helper

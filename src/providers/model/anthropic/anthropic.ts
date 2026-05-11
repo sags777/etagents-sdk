@@ -78,6 +78,14 @@ function toAnthropicMessages(messages: ModelMessage[]): unknown[] {
           },
         ],
       });
+    } else if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      const content: unknown[] = [];
+      const text = contentToString(msg.content);
+      if (text) content.push({ type: "text", text });
+      for (const tc of msg.toolCalls) {
+        content.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.args });
+      }
+      out.push({ role: "assistant", content });
     } else {
       out.push({ role: msg.role, content: contentToString(msg.content) });
     }

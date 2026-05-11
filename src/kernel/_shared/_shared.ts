@@ -89,6 +89,7 @@ export function buildTurnCycleContext(
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
     store: agent.store,
+    metadata: ctx.metadata,
   };
 }
 

@@ -163,10 +163,17 @@ export async function runInsight(
       { role: "user", content: INSIGHT_PROMPTS.extract.user(bounded) },
     ]);
 
-    const raw =
+    const rawContent =
       typeof response.message.content === "string"
         ? response.message.content
         : "";
+
+    // Strip markdown code fences (```json ... ``` or ``` ... ```) that some
+    // models emit despite the "no markdown" instruction.
+    const raw = rawContent
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/, "")
+      .trim();
 
     const parsed = JSON.parse(raw) as {
       facts?: unknown;

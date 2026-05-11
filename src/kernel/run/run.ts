@@ -7,7 +7,7 @@ import { exitCodeToStatus, createRunServices, buildTurnCycleContext, applyDecisi
 import { runInsight } from "../../insight/extractor/extractor.js";
 import type { AgentDef } from "../../types/agent.js";
 import type { RunConfig, RunResult, RunState, ExitCode } from "../../types/run.js";
-import type { SessionSnapshot } from "../../types/session.js";
+import type { SessionSnapshot, SnapshotMeta } from "../../types/session.js";
 import type { ToolContext } from "../../types/tool.js";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,15 @@ export async function startRun(
     const memories = await pipe.retrieve(input);
     let systemPrompt = agent.systemPrompt;
     if (memories.length > 0) {
-      const memCtx = memories.map((m) => m.text).join("\n");
+      // Deduplicate by normalised text — the same fact may be indexed across multiple runs
+      const seen = new Set<string>();
+      const uniqueMemories = memories.filter((m) => {
+        const key = m.text.trim().toLowerCase().replace(/\s+/g, " ");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const memCtx = uniqueMemories.map((m) => m.text).join("\n");
       systemPrompt = `${agent.systemPrompt}\n\nRelevant context:\n${memCtx}`;
     }
 
@@ -137,22 +145,25 @@ export async function startRun(
 
     const status = exitCodeToStatus(exitCode);
 
-    // Post-run insight — index facts/summary into memory for future retrieval (fire-and-forget)
+    // Post-run insight — extract facts/summary, index into memory, and persist to snapshot metadata
     const insightCfg = agent.insight;
+    let reflectionMeta: SnapshotMeta = {};
     if (insightCfg && Object.keys(insightCfg).length > 0) {
-      void runInsight(state.messages, agent.model, insightCfg, state.turns).then((result) => {
+      try {
+        const result = await runInsight(state.messages, agent.model, insightCfg, state.turns);
         const toIndex = insightCfg.injectSummaryOnly
           ? (result.summary ? [result.summary] : [])
           : [...result.facts, ...result.userFacts];
         pipe.index(toIndex);
-      }).catch(() => {
+        reflectionMeta = { facts: result.facts, userFacts: result.userFacts, summary: result.summary };
+      } catch {
         // Fail-open — insight errors must not break the run result
-      });
+      }
     }
 
     // Persist session snapshot (best-effort)
     try {
-      await persistRun(buildSessionSnapshot(ctx.runId, state, ctx.metadata), agent.store);
+      await persistRun(buildSessionSnapshot(ctx.runId, state, ctx.metadata, reflectionMeta), agent.store);
     } catch {
       // Best-effort — don't fail the run if persistence fails
     }
@@ -181,6 +192,7 @@ function buildSessionSnapshot(
   runId: string,
   state: RunState,
   metadata: Record<string, unknown>,
+  snapshotMeta: SnapshotMeta = {},
 ): SessionSnapshot {
   const now = new Date().toISOString();
   return {
@@ -190,6 +202,6 @@ function buildSessionSnapshot(
     metadata,
     createdAt: now,
     updatedAt: now,
-    __eta: {},
+    __eta: snapshotMeta,
   };
 }

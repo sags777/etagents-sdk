@@ -287,7 +287,7 @@ const azure = AzureModel.create({
   model: "gpt-4o",
 });
 
-// Google Gemini
+// Google Gemini — API key auth
 const gemini = GeminiModel.create({
   apiKey: process.env.GEMINI_API_KEY!,
   model: "gemini-2.0-flash",
@@ -405,6 +405,42 @@ const createUser = defineTool({
   },
 });
 ```
+
+### Tool Context
+
+Every handler receives an optional second argument — a `ToolContext` object injected by the kernel at call time.
+
+```typescript
+import type { ToolContext } from "@etagents/sdk";
+
+const createTicket = defineTool({
+  name: "create_ticket",
+  description: "Persists a new ticket to the database",
+  params: z.object({ title: z.string(), body: z.string() }),
+  handler: async ({ title, body }, context?: ToolContext) => {
+    // context.metadata carries arbitrary values from RunConfig.metadata
+    // e.g. { userId: "u_abc", tier: "pro" } passed via startRun
+    const userId = context?.metadata?.userId as string | undefined;
+    if (!userId) throw new Error("Unauthenticated");
+
+    const ticket = await db.tickets.create({ userId, title, body });
+    return JSON.stringify({ id: ticket.id });
+  },
+});
+
+// Pass metadata when starting a run — it flows into every tool call
+await startRun(agent, "Create a bug report", {
+  metadata: { userId: "u_abc", tier: "pro" },
+});
+```
+
+| `ToolContext` field | Type | Description |
+|---|---|---|
+| `runId` | `string` | Unique ID of this run |
+| `agentName` | `string` | Name of the running agent |
+| `messages` | `readonly Message[]` | Full conversation so far |
+| `metadata` | `Record<string, unknown>` | Caller-supplied values from `RunConfig.metadata` |
+| `store` | `StoreProvider?` | Agent's store (if configured) |
 
 ### Parallel vs Sequential
 

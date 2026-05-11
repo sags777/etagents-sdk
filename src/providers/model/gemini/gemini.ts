@@ -13,9 +13,10 @@ import { collectStream, zeroUsage, sseLines, contentToString } from "../_stream.
 // ---------------------------------------------------------------------------
 
 export interface GeminiModelConfig {
-  apiKey: string;
+  apiKey?: string;
   model: string;
   baseUrl?: string;
+  customHeaders?: Record<string, string> | (() => Promise<Record<string, string>>);
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,7 @@ interface GeminiChunk {
 /** Maps Gemini finishReason values to the unified FinishReason. */
 const FINISH_REASON: Partial<Record<string, FinishReason>> = {
   STOP: "stop",
+  FUNCTION_CALL: "tool_use",
   MAX_TOKENS: "length",
   SAFETY: "error",
   RECITATION: "error",
@@ -120,12 +122,31 @@ const schemaTransformer = new SchemaTransformer();
 // ---------------------------------------------------------------------------
 
 function toGeminiContents(messages: ModelMessage[]): GeminiContent[] {
+  // Build a callId → toolName map from all assistant messages
+  const toolNameMap = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role === "assistant" && msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        toolNameMap.set(tc.id, tc.name);
+      }
+    }
+  }
+
   const out: GeminiContent[] = [];
   for (const msg of messages) {
     if (msg.role === "system") continue;
     const text = contentToString(msg.content);
     if (msg.role === "tool") {
-      out.push({ role: "user", parts: [{ functionResponse: { name: "", response: { result: text } } }] });
+      const name = (msg.toolCallId ? toolNameMap.get(msg.toolCallId) : undefined) ?? "";
+      out.push({ role: "user", parts: [{ functionResponse: { name, response: { result: text } } }] });
+    } else if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      // Emit functionCall parts so Gemini understands the multi-turn tool use
+      const parts: GeminiPart[] = [];
+      if (text) parts.push({ text });
+      for (const tc of msg.toolCalls) {
+        parts.push({ functionCall: { name: tc.name, args: tc.args } });
+      }
+      out.push({ role: "model", parts });
     } else {
       out.push({ role: msg.role === "assistant" ? "model" : "user", parts: [{ text }] });
     }
@@ -155,14 +176,16 @@ function toFinishReason(raw: string | undefined): FinishReason {
  * before sending function declarations to the API.
  */
 export class GeminiModel implements ModelProvider {
-  private readonly apiKey: string;
+  private readonly apiKey?: string;
   private readonly model: string;
   private readonly baseUrl: string;
+  private readonly customHeaders?: Record<string, string> | (() => Promise<Record<string, string>>);
 
   private constructor(config: GeminiModelConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.baseUrl = (config.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
+    this.customHeaders = config.customHeaders;
   }
 
   static create(config: GeminiModelConfig): GeminiModel {
@@ -200,13 +223,15 @@ export class GeminiModel implements ModelProvider {
         }];
       }
 
-      const url =
-        `${this.baseUrl}/models/${this.model}:streamGenerateContent` +
-        `?alt=sse&key=${encodeURIComponent(this.apiKey)}`;
+      const query = this.apiKey ? `?alt=sse&key=${encodeURIComponent(this.apiKey)}` : "?alt=sse";
+      const url = `${this.baseUrl}/models/${this.model}:streamGenerateContent${query}`;
+
+      const resolvedCustomHeaders = typeof this.customHeaders === 'function' ? await this.customHeaders() : this.customHeaders;
+      const headers = { "content-type": "application/json", ...resolvedCustomHeaders };
 
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(body),
         signal: options?.signal,
       });

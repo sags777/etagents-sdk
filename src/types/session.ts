@@ -29,6 +29,7 @@ export interface SessionSnapshot {
  */
 export interface SnapshotMeta {
   facts?: string[];
+  userFacts?: string[];
   summary?: string;
   privacyMap?: PrivacyMap;
   tokenUsage?: TokenUsage;

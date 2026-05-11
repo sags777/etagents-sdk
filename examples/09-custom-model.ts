@@ -53,7 +53,29 @@ class OllamaModel implements ModelProvider {
   ): AsyncIterable<StreamChunk> {
     const ollamaMessages = messages
       .filter((m) => m.role !== "system")
-      .map((m) => ({ role: m.role, content: typeof m.content === "string" ? m.content : "" }));
+      .map((m) => {
+        // Reconstruct assistant tool_calls in a format Ollama understands
+        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+          return {
+            role: "assistant",
+            content: typeof m.content === "string" ? m.content : "",
+            tool_calls: m.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: tc.args },
+            })),
+          };
+        }
+        // tool results
+        if (m.role === "tool") {
+          return {
+            role: "tool",
+            tool_call_id: m.toolCallId ?? "",
+            content: typeof m.content === "string" ? m.content : "",
+          };
+        }
+        return { role: m.role, content: typeof m.content === "string" ? m.content : "" };
+      });
 
     const system = messages.find((m) => m.role === "system");
 

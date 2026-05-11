@@ -43,6 +43,8 @@ export interface ModelMessage {
   content: string | ContentPart[];
   /** Present when role is "tool" */
   toolCallId?: string;
+  /** Present when role is "assistant" and the model requested tool calls */
+  toolCalls?: { id: string; name: string; args: Record<string, unknown> }[];
 }
 
 export type ContentPart = TextPart | ImagePart;

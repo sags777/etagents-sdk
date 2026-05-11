@@ -1,15 +1,12 @@
-import type { ModelProvider, StreamChunk, TokenUsage, FinishReason } from "../../interfaces/model.js";
-import type { StoreProvider } from "../../interfaces/store.js";
+import type { StreamChunk, TokenUsage, FinishReason } from "../../interfaces/model.js";
 import type { ToolCall, ToolResult } from "../../types/message.js";
 import type { TurnCycleContext } from "../../types/kernel.js";
 import type { ToolCallRecord } from "../../types/tool.js";
 import type { RunState, RunEvent } from "../../types/run.js";
-import type { HitlConfig, LifecycleHooks, HookContext } from "../../types/agent.js";
+import type { HitlConfig } from "../../types/agent.js";
 import type { PendingApproval } from "../../types/checkpoint.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import type { PrivacyFence } from "../privacy-fence/privacy-fence.js";
-import type { BudgetLedger } from "../budget-ledger/budget-ledger.js";
 import { safeHook } from "../lifecycle/lifecycle.js";
 import { routeTool } from "../tool-router/tool-router.js";
 import type { ToolContext } from "../../types/tool.js";
@@ -134,6 +131,7 @@ export class TurnCycle {
         role: m.role,
         content: m.content,
         toolCallId: m.toolCallId,
+        toolCalls: m.toolCalls,
       })),
       {
         tools: toolDefs,
@@ -168,8 +166,7 @@ export class TurnCycle {
     });
     state.turns = turnNumber;
 
-    // 9. No tool calls or stop → done
-    if (collected.toolCalls.length === 0 || collected.finishReason === "stop") {
+    if (collected.toolCalls.length === 0) {
       return { kind: "done", response };
     }
 
@@ -198,6 +195,7 @@ export class TurnCycle {
       agentName: ctx.agentName,
       messages: state.messages,
       store: ctx.store,
+      metadata: ctx.metadata,
     };
 
     const results = await dispatchToolCalls(

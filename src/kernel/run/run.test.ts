@@ -11,10 +11,6 @@ import { z } from "zod";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeAgent(model: MockModel, overrides: Partial<Parameters<typeof createAgent>[0]> = {}) {
-  return createAgent({ name: "test", systemPrompt: "You are a test agent.", model, ...overrides });
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -99,8 +95,7 @@ describe("startRun", () => {
     // Capture the placeholder the fence generates so we can feed it back to unmask
     let capturedPlaceholder = "";
     const model = MockModel.create([]); // queue empty — we fill dynamically
-    const origStream = model.stream.bind(model);
-    model.stream = async function* (messages, opts) {
+    model.stream = async function* (messages) {
       sentMessages = messages;
       // Figure out what placeholder was injected into the user message
       const userMsg = messages.find((m) => m.role === "user") as { content: string } | undefined;

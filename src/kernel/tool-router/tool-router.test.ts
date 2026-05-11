@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { routeTool } from "./tool-router.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";

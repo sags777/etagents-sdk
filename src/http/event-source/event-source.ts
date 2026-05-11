@@ -1,4 +1,4 @@
-import type { CompleteEvent, RunEvent } from "../../types/run.js";
+import type { CompleteEvent } from "../../types/run.js";
 import type { BudgetEvent } from "../../types/budget.js";
 import type {
   TurnStartEvent,

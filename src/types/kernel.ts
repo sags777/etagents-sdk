@@ -32,4 +32,6 @@ export interface TurnCycleContext {
   maxTokens: number;
   /** Agent's store — passed through to ToolContext for tool-result caching. */
   store?: StoreProvider;
+  /** Run-level metadata (e.g. userId) — passed through to ToolContext. */
+  metadata?: Record<string, unknown>;
 }

@@ -103,6 +103,7 @@ export async function startRun(
             agentName: agent.name,
             messages: state.messages,
             store: agent.store,
+            metadata: ctx.metadata,
           };
           await applyDecisions(result.pendingApprovals, decisions, state, registry, hub, toolContext);
           // Continue the loop — decisions applied, next cycle will proceed

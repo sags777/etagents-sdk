@@ -137,9 +137,40 @@ To prevent infinite delegation loops when agents are nested, the kernel tracks d
 
 ---
 
+## HITL in multi-agent systems
+
+When using HITL with a router, **each agent in the pool must declare its own `hitl` config**. The router does not propagate its own `hitl` setting to pooled agents — each agent runs an independent kernel turn loop.
+
+```typescript
+// Each specialist that owns sensitive tools declares its own hitl config
+const productAgent = createAgent({
+  name: "ProductAgent",
+  tools: [createTicket, updateTicket],   // sensitive tools
+  hitl: { mode: "sensitive", hitlStore },
+  // ...
+});
+
+const researchAgent = createAgent({
+  name: "ResearchAgent",
+  tools: [searchKnowledgeBase],          // no sensitive tools
+  // hitl omitted \u2014 defaults to mode:"none"
+  // ...
+});
+
+const router = AgentRouter.create()
+  .add(productAgent)
+  .add(researchAgent)
+  .withStrategy(strategy)
+  .build();
+```
+
+When a specialist suspends for HITL approval, the `RunResult` returned by `router.run()` will have `status: "awaiting_approval"` and `pendingApprovals`. Call `continueRun(checkpointId, decisions, { agent: productAgent, metadata })` to resume — pass the specific specialist agent, not the router.
+
+---
+
 ## Related
 
-- [Core Concepts](../../getting-started/concepts) \u2014 `AgentDef` and `startRun`.
-- [HITL](./hitl) \u2014 Human-in-the-loop inside routed agents.
-- [Error Handling](./error-handling) \u2014 `AgentError` and routing failures.
+- [Core Concepts](../../getting-started/concepts) — `AgentDef` and `startRun`.
+- [HITL](./hitl) — Human-in-the-loop inside routed agents.
+- [Error Handling](./error-handling) — `AgentError` and routing failures.
 

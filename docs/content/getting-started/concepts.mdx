@@ -219,6 +219,8 @@ import { MockModel } from "@etagents/sdk";
 createAgent({ model: new MockModel([{ text: "Hello!", toolCalls: [], usage: { prompt: 10, completion: 5, total: 15 } }]), ... });
 ```
 
+`GeminiModel` supports `customHeaders` as either a static `Record<string, string>` or an async factory `() => Promise<Record<string, string>>`. The async form is evaluated on every request, which makes it suitable for short-lived Bearer tokens.
+
 ### store
 
 Key-value persistence for session snapshots and HITL checkpoints.

@@ -77,26 +77,42 @@ console.log(final.response);  // LLM's final message
 
 ### sensitive mode
 
-Mark individual tools as sensitive and use `mode: "sensitive"` to require approval only for those tools:
+Mark individual tools as sensitive inside `defineTool` and use `mode: "sensitive"` to require approval only for those tools:
 
 ```typescript
 const sendEmailTool = defineTool({
   name: "send_email",
+  sensitive: true,  // this tool requires approval
   // ...
 });
 
-sendEmailTool.sensitive = true; // this tool requires approval
-
 const lookupTool = defineTool({
   name: "lookup_contact",
+  // sensitive omitted — runs without approval
   // ...
-  // sensitive not set — runs without approval
 });
 
 const agent = createAgent({
   hitl: { mode: "sensitive", hitlStore: store },
 });
 ```
+
+:::important
+**In multi-agent setups each specialist agent must declare its own `hitl` config.** The router's `hitl` setting does not propagate to agents in the pool — each agent runs its own kernel turn loop independently.
+
+```typescript
+// ❌ Wrong — only the router has hitl, the agents default to mode:"none"
+const coordinator = createAgent({ hitl: { mode: "sensitive" }, ... });
+const workerAgent = createAgent({ /* no hitl — never suspends */ ... });
+
+// ✅ Correct — each agent that owns sensitive tools declares its own config
+const workerAgent = createAgent({
+  hitl: { mode: "sensitive", hitlStore: store },
+  tools: [sendEmailTool],
+  ...
+});
+```
+:::
 
 ## Callback mode
 
@@ -163,21 +179,32 @@ const agent = createAgent({
 
 // POST /api/agent — new run
 export async function POST(req: Request) {
-  const { prompt, runId } = await req.json() as { prompt: string; runId: string };
-  const result = await startRun(agent, prompt, { runId });
+  const { prompt, runId, userId } = await req.json() as { prompt: string; runId: string; userId: string };
+  const result = await startRun(agent, prompt, {
+    runId,
+    metadata: { userId },  // ← stored in checkpoint snapshot
+  });
   return Response.json(result);
 }
 
 // POST /api/agent/resume — human has reviewed
 export async function PATCH(req: Request) {
+  const session = await getSession(req);
   const { checkpointId, decisions } = await req.json() as {
     checkpointId: string;
     decisions: ApprovalDecision[];
   };
-  const result = await continueRun(checkpointId, decisions, { agent });
+  const result = await continueRun(checkpointId, decisions, {
+    agent,
+    metadata: { userId: session.id },  // ← re-supply so tool handlers can read it
+  });
   return Response.json(result);
 }
 ```
+
+:::important
+**Always re-supply `metadata` in `continueRun`'s `RestoreConfig`.** The checkpoint snapshot stores a copy of the original metadata, but for security-sensitive values such as `userId` it is best practice to re-derive them from the live session on resume rather than trusting the persisted copy.
+:::
 
 The `hitlStore` is separate from the session `store` in `AgentConfig`. Use Redis-backed storage for `hitlStore` in multi-instance deployments so any instance can resume the checkpoint.
 

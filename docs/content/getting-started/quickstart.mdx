@@ -97,6 +97,45 @@ console.log(result.toolCalls.map((t) => t.name));
 
 The agent can call `get_weather` multiple times if needed. All tool calls in a single LLM turn run in parallel by default.
 
+### Tool context
+
+Every handler receives a second `context` argument of type `ToolContext`. Use it to access the run ID, agent name, conversation history, and any metadata you passed into `startRun`:
+
+```typescript
+import type { ToolContext } from "@etagents/sdk";
+
+const myTool = defineTool({
+  name: "my_tool",
+  params: z.object({ input: z.string() }),
+  async handler({ input }, context: ToolContext) {
+    const userId = context.metadata?.userId as string | undefined;
+    const runId = context.runId;
+    // ...
+    return "done";
+  },
+});
+
+// Pass metadata when starting the run — it reaches every tool handler
+await startRun(agent, "Do something", {
+  runId: "session-abc",
+  metadata: { userId: "u_123", tier: "pro" },
+});
+```
+
+`ToolContext` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `runId` | `string` | Current run identifier |
+| `agentName` | `string` | Name of the agent executing this tool |
+| `messages` | `Message[]` | Conversation history up to this point |
+| `store` | `StoreProvider?` | Agent's store (for tools that need KV access) |
+| `metadata` | `Record<string, unknown>?` | Arbitrary values from `RunConfig.metadata` / `RestoreConfig.metadata` |
+
+:::note
+`metadata` is also threaded through HITL resume — values passed to `continueRun`'s `metadata` field reach tool handlers when a suspended run is resumed.
+:::
+
 ---
 
 ## Step 4 — Persist the conversation

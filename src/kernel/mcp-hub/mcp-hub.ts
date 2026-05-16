@@ -30,10 +30,15 @@ export class McpHub {
       configs.map(async (cfg) => {
         const handle = await hub.client.connect(cfg);
         hub.handles.push(handle);
-        const tools = await hub.client.listTools(handle);
-        for (const t of tools) {
-          hub.allTools.push(t);
-          hub.toolIndex.set(t.name, handle);
+        try {
+          const tools = await hub.client.listTools(handle);
+          for (const t of tools) {
+            hub.allTools.push(t);
+            hub.toolIndex.set(t.name, handle);
+          }
+        } catch (err) {
+          // MCP server failed to start or list tools — log and continue without its tools
+          console.warn(`[McpHub] Failed to connect to MCP server "${cfg.serverName}": ${String(err)}`);
         }
       }),
     );

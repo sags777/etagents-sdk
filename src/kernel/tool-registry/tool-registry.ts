@@ -35,6 +35,7 @@ export class ToolRegistry {
           return typeof result === "string" ? result : JSON.stringify(result);
         },
       };
+      // Register under the namespaced name (e.g. "mcp__browser__browser_navigate")
       registry.reg.set(proxy.name, proxy);
     }
 

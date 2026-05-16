@@ -25,7 +25,7 @@ function cacheKey(toolName: string, args: Record<string, unknown>): string {
  * routeTool — resolves and executes a tool call, returning a `ToolResult`.
  *
  * Routing logic:
- *   - Names containing `::` → MCP tool via `hub.callTool()`
+ *   - Names starting with `mcp__` → MCP tool via `hub.callTool()`
  *   - All other names → local tool via `executeTool()`
  *
  * For local tools with `cache.enabled`, the result is read from / written to
@@ -40,7 +40,7 @@ export async function routeTool(
   hub: McpHub,
   context: ToolContext,
 ): Promise<ToolResult> {
-  const isMcp = call.name.includes("::");
+  const isMcp = call.name.startsWith("mcp__");
 
   if (isMcp) {
     try {

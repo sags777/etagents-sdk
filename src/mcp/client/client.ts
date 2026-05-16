@@ -88,14 +88,14 @@ export class McpClient {
 
   /**
    * Returns all tools exposed by the server, with names prefixed
-   * `{serverName}::{toolName}`.
+   * `mcp__{serverName}__{toolName}`.
    */
   async listTools(handle: McpHandle): Promise<McpToolDef[]> {
     try {
       const client = await this.ensureConnected(handle);
       const result = await client.listTools();
       return result.tools.map((t) => ({
-        name: `${handle.serverName}::${t.name}`,
+        name: `mcp__${handle.serverName}__${t.name}`,
         description: t.description ?? "",
         inputSchema: t.inputSchema as Record<string, unknown>,
       }));
@@ -109,7 +109,7 @@ export class McpClient {
   }
 
   /**
-   * Calls a tool by namespaced name (`{serverName}::{toolName}` or bare tool name).
+   * Calls a tool by namespaced name (`mcp__{serverName}__{toolName}` or bare tool name).
    * Returns the concatenated text content from the tool result.
    */
   async callTool(
@@ -117,7 +117,7 @@ export class McpClient {
     name: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const prefix = `${handle.serverName}::`;
+    const prefix = `mcp__${handle.serverName}__`;
     const toolName = name.startsWith(prefix) ? name.slice(prefix.length) : name;
 
     try {

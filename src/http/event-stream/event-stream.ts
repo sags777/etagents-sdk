@@ -1,9 +1,18 @@
 import { startRun, continueRun } from "../../kernel/index.js";
+import { AgentRouter } from "../../orchestration/agent-router/agent-router.js";
 import type { AgentDef } from "../../types/agent.js";
 import type { RunEvent } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
 import type { RestoreConfig } from "../../kernel/index.js";
 import type { StreamOptions } from "../stream-options.js";
+import { toSseName, encodeMessage, encodeError } from "./_helpers.js";
+
+// ---------------------------------------------------------------------------
+// StreamTarget — union of single-agent and multi-agent entry points
+// ---------------------------------------------------------------------------
+
+/** A `SessionEventStream` can drive either a single agent or a multi-agent router. */
+export type StreamTarget = AgentDef | AgentRouter;
 
 // ---------------------------------------------------------------------------
 // SSE headers
@@ -15,79 +24,43 @@ export const SSE_HEADERS: Record<string, string> = {
   Connection: "keep-alive",
 };
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-const encoder = new TextEncoder();
-
-/**
- * Maps a RunEvent to its SSE dot-notation event name.
- * Legacy names like "session_complete" are not used here.
- */
-function toSseName(event: RunEvent): string {
-  switch (event.kind) {
-    case "turn_start":
-    case "turn_end":
-    case "warning":
-    case "exceeded":
-    case "agent_routed":
-    case "agent_complete":
-      return "run.status";
-    case "text_delta":
-      return "run.text.delta";
-    case "text_done":
-      return "run.text.done";
-    case "tool_call":
-      return "tool.invoke";
-    case "tool_result":
-      return "tool.result";
-    case "error":
-      return "run.error";
-    case "complete":
-      return "run.done";
-  }
-}
-
-function encodeMessage(eventName: string, data: unknown): Uint8Array {
-  const text = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
-  return encoder.encode(text);
-}
-
-function encodeError(message: string): Uint8Array {
-  return encodeMessage("run.error", {
-    kind: "error",
-    message,
-    code: "STREAM_ERROR",
-  });
-}
 
 // ---------------------------------------------------------------------------
-// EtaEventStream — server-side SSE producer
+// SessionEventStream — server-side SSE producer
 // ---------------------------------------------------------------------------
 
 /**
- * SessionEventStream — wraps `startRun()` / `continueRun()` and produces a
- * `ReadableStream<Uint8Array>` of SSE-formatted messages.
+ * SessionEventStream — wraps `startRun()` / `continueRun()` (single-agent) or
+ * `AgentRouter.run()` (multi-agent) and produces a `ReadableStream<Uint8Array>`
+ * of SSE-formatted messages.
  *
- * Usage:
+ * Accepts either an {@link AgentDef} or an {@link AgentRouter} as the target.
+ *
+ * Usage (single agent):
  * ```ts
  * const stream = new SessionEventStream(agent);
- * stream.send("run_id", { runId });   // inject a custom pre-run event
+ * stream.send("run_id", { runId });
  * const body = stream.stream("Hello");
- * // pipe body to an HTTP response with SSE_HEADERS
+ * ```
+ *
+ * Usage (multi-agent router):
+ * ```ts
+ * const router = AgentRouter.create().withStrategy(strategy).add(a).add(b).build();
+ * const stream = new SessionEventStream(router);
+ * stream.send("session_id", { sessionId });
+ * const body = stream.stream("Hello");
  * ```
  *
  * Note: `send()` is designed for a single active stream at a time. Pre-run
  * calls are buffered and flushed when the stream starts.
  */
 export class SessionEventStream {
-  private readonly agent: AgentDef;
+  private readonly target: StreamTarget;
   private controller: ReadableStreamDefaultController<Uint8Array> | undefined;
   private readonly pending: Uint8Array[] = [];
 
-  constructor(agent: AgentDef) {
-    this.agent = agent;
+  constructor(target: StreamTarget) {
+    this.target = target;
   }
 
   // ---------------------------------------------------------------------------
@@ -123,8 +96,9 @@ export class SessionEventStream {
    * Start a new run and stream its events as SSE.
    */
   stream(input: string, options: StreamOptions = {}): ReadableStream<Uint8Array> {
-    const agent = this.agent;
+    const target = this.target;
     const config = options.config ?? {};
+    const externalOnEvent = options.onEvent;
     const self = this;
 
     return new ReadableStream<Uint8Array>({
@@ -135,12 +109,19 @@ export class SessionEventStream {
           ctrl.enqueue(chunk);
         }
         try {
-          await startRun(agent, input, {
+          const runConfig = {
             ...config,
             onEvent(event: RunEvent) {
               ctrl.enqueue(encodeMessage(toSseName(event), event));
+              externalOnEvent?.(event);
             },
-          });
+          };
+
+          if (target instanceof AgentRouter) {
+            await target.run(input, runConfig);
+          } else {
+            await startRun(target, input, runConfig);
+          }
         } catch (err) {
           ctrl.enqueue(encodeError(err instanceof Error ? err.message : String(err)));
         } finally {
@@ -163,8 +144,18 @@ export class SessionEventStream {
     decisions: ApprovalDecision[],
     options: StreamOptions = {},
   ): ReadableStream<Uint8Array> {
-    const agent = this.agent;
+    const target = this.target;
+
+    if (target instanceof AgentRouter) {
+      throw new Error(
+        "SessionEventStream.resume() is not supported for AgentRouter targets. " +
+        "Construct a SessionEventStream with the individual AgentDef that was " +
+        "suspended (available from the suspend snapshot).",
+      );
+    }
+
     const config = options.config ?? {};
+    const externalOnEvent = options.onEvent;
     const self = this;
 
     return new ReadableStream<Uint8Array>({
@@ -176,11 +167,12 @@ export class SessionEventStream {
         }
         try {
           const restoreConfig: RestoreConfig = {
-            agent,
+            agent: target,
             signal: config.signal,
             metadata: config.metadata,
             onEvent(event: RunEvent) {
               ctrl.enqueue(encodeMessage(toSseName(event), event));
+              externalOnEvent?.(event);
             },
           };
           await continueRun(checkpointId, decisions, restoreConfig);

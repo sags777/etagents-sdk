@@ -182,6 +182,7 @@ export { runInsight } from "./insight/index.js";
 // ── HTTP / SSE ─────────────────────────────────────────────────────
 
 export { SessionEventStream, SSE_HEADERS } from "./http/index.js";
+export type { StreamTarget } from "./http/index.js";
 export type { StreamOptions } from "./http/index.js";
 export { SessionEventSource } from "./http/index.js";
 export type {

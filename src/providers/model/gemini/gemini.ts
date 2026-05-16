@@ -6,7 +6,12 @@ import type {
   StreamChunk,
   FinishReason,
 } from "../../../interfaces/model.js";
-import { collectStream, zeroUsage, sseLines, contentToString } from "../_stream.js";
+import {
+  collectStream,
+  zeroUsage,
+  sseLines,
+  contentToString,
+} from "../_stream.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -16,7 +21,9 @@ export interface GeminiModelConfig {
   apiKey?: string;
   model: string;
   baseUrl?: string;
-  customHeaders?: Record<string, string> | (() => Promise<Record<string, string>>);
+  customHeaders?:
+    | Record<string, string>
+    | (() => Promise<Record<string, string>>);
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +81,8 @@ const FINISH_REASON: Partial<Record<string, FinishReason>> = {
  * Transformations applied:
  *   - Remove `$schema`, `$defs`, `$ref`, `$id`, `$comment`
  *   - Remove `additionalProperties`, `default`, `examples`
+ *   - Remove `propertyNames`, `unevaluatedProperties`, `contains`, `prefixItems`
+ *   - Remove conditional keywords: `if`, `then`, `else`
  *   - Flatten `anyOf: [<type>, {type:"null"}]` → just the non-null schema
  *     (handles nullable fields in TypeScript-generated schemas)
  */
@@ -92,16 +101,44 @@ class SchemaTransformer {
     const out: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(obj)) {
-      if (["$schema", "$defs", "$ref", "$id", "$comment", "additionalProperties", "default", "examples", "exclusiveMinimum", "exclusiveMaximum"].includes(key)) {
+      if (
+        [
+          "$schema",
+          "$defs",
+          "$ref",
+          "$id",
+          "$comment",
+          "additionalProperties",
+          "default",
+          "examples",
+          "exclusiveMinimum",
+          "exclusiveMaximum",
+          "propertyNames",
+          "unevaluatedProperties",
+          "contains",
+          "prefixItems",
+          "if",
+          "then",
+          "else",
+        ].includes(key)
+      ) {
         continue;
       }
 
       if (key === "anyOf" && Array.isArray(val)) {
         const nonNull = (val as unknown[]).filter(
-          (v) => !(typeof v === "object" && v !== null && (v as Record<string, unknown>).type === "null"),
+          (v) =>
+            !(
+              typeof v === "object" &&
+              v !== null &&
+              (v as Record<string, unknown>).type === "null"
+            ),
         );
         if (nonNull.length === 1) {
-          Object.assign(out, this.visitObj(nonNull[0] as Record<string, unknown>));
+          Object.assign(
+            out,
+            this.visitObj(nonNull[0] as Record<string, unknown>),
+          );
           continue;
         }
         out[key] = nonNull.map((v) => this.visit(v));
@@ -137,9 +174,17 @@ function toGeminiContents(messages: ModelMessage[]): GeminiContent[] {
     if (msg.role === "system") continue;
     const text = contentToString(msg.content);
     if (msg.role === "tool") {
-      const name = (msg.toolCallId ? toolNameMap.get(msg.toolCallId) : undefined) ?? "";
-      out.push({ role: "user", parts: [{ functionResponse: { name, response: { result: text } } }] });
-    } else if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      const name =
+        (msg.toolCallId ? toolNameMap.get(msg.toolCallId) : undefined) ?? "";
+      out.push({
+        role: "user",
+        parts: [{ functionResponse: { name, response: { result: text } } }],
+      });
+    } else if (
+      msg.role === "assistant" &&
+      msg.toolCalls &&
+      msg.toolCalls.length > 0
+    ) {
       // Emit functionCall parts so Gemini understands the multi-turn tool use
       const parts: GeminiPart[] = [];
       if (text) parts.push({ text });
@@ -148,7 +193,10 @@ function toGeminiContents(messages: ModelMessage[]): GeminiContent[] {
       }
       out.push({ role: "model", parts });
     } else {
-      out.push({ role: msg.role === "assistant" ? "model" : "user", parts: [{ text }] });
+      out.push({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts: [{ text }],
+      });
     }
   }
   return out;
@@ -179,12 +227,16 @@ export class GeminiModel implements ModelProvider {
   private readonly apiKey?: string;
   private readonly model: string;
   private readonly baseUrl: string;
-  private readonly customHeaders?: Record<string, string> | (() => Promise<Record<string, string>>);
+  private readonly customHeaders?:
+    | Record<string, string>
+    | (() => Promise<Record<string, string>>);
 
   private constructor(config: GeminiModelConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
-    this.baseUrl = (config.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
+    this.baseUrl = (
+      config.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta"
+    ).replace(/\/$/, "");
     this.customHeaders = config.customHeaders;
   }
 
@@ -201,33 +253,52 @@ export class GeminiModel implements ModelProvider {
     let lastFinishReason: string | undefined;
 
     try {
-      const body: Record<string, unknown> = { contents: toGeminiContents(messages) };
+      const body: Record<string, unknown> = {
+        contents: toGeminiContents(messages),
+      };
 
       const sys = extractSystem(messages);
       if (sys) body.systemInstruction = { parts: [{ text: sys }] };
 
-      if (options?.temperature !== undefined || options?.maxTokens !== undefined) {
+      if (
+        options?.temperature !== undefined ||
+        options?.maxTokens !== undefined
+      ) {
         const cfg: Record<string, unknown> = {};
-        if (options.temperature !== undefined) cfg.temperature = options.temperature;
-        if (options.maxTokens !== undefined) cfg.maxOutputTokens = options.maxTokens;
+        if (options.temperature !== undefined)
+          cfg.temperature = options.temperature;
+        if (options.maxTokens !== undefined)
+          cfg.maxOutputTokens = options.maxTokens;
         body.generationConfig = cfg;
       }
 
       if (options?.tools && options.tools.length > 0) {
-        body.tools = [{
-          functionDeclarations: options.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: schemaTransformer.transform(t.inputSchema as Record<string, unknown>),
-          })),
-        }];
+        body.tools = [
+          {
+            functionDeclarations: options.tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              parameters: schemaTransformer.transform(
+                t.inputSchema as Record<string, unknown>,
+              ),
+            })),
+          },
+        ];
       }
 
-      const query = this.apiKey ? `?alt=sse&key=${encodeURIComponent(this.apiKey)}` : "?alt=sse";
+      const query = this.apiKey
+        ? `?alt=sse&key=${encodeURIComponent(this.apiKey)}`
+        : "?alt=sse";
       const url = `${this.baseUrl}/models/${this.model}:streamGenerateContent${query}`;
 
-      const resolvedCustomHeaders = typeof this.customHeaders === 'function' ? await this.customHeaders() : this.customHeaders;
-      const headers = { "content-type": "application/json", ...resolvedCustomHeaders };
+      const resolvedCustomHeaders =
+        typeof this.customHeaders === "function"
+          ? await this.customHeaders()
+          : this.customHeaders;
+      const headers = {
+        "content-type": "application/json",
+        ...resolvedCustomHeaders,
+      };
 
       const resp = await fetch(url, {
         method: "POST",
@@ -238,7 +309,12 @@ export class GeminiModel implements ModelProvider {
 
       if (!resp.ok || !resp.body) {
         const errText = resp.body ? await resp.text() : resp.statusText;
-        yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: `Gemini ${resp.status}: ${errText}` };
+        yield {
+          type: "finish",
+          finishReason: "error",
+          usage: zeroUsage(),
+          errorMsg: `Gemini ${resp.status}: ${errText}`,
+        };
         return;
       }
 
@@ -253,7 +329,12 @@ export class GeminiModel implements ModelProvider {
         }
 
         if (chunk.error) {
-          yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: chunk.error.message };
+          yield {
+            type: "finish",
+            finishReason: "error",
+            usage: zeroUsage(),
+            errorMsg: chunk.error.message,
+          };
           return;
         }
 
@@ -272,9 +353,21 @@ export class GeminiModel implements ModelProvider {
 
             if (part.functionCall) {
               const callId = `gemini_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-              yield { type: "tool_start", toolCallId: callId, toolName: part.functionCall.name };
-              yield { type: "tool_delta", toolCallId: callId, inputDelta: JSON.stringify(part.functionCall.args) };
-              yield { type: "tool_end", toolCallId: callId, input: part.functionCall.args };
+              yield {
+                type: "tool_start",
+                toolCallId: callId,
+                toolName: part.functionCall.name,
+              };
+              yield {
+                type: "tool_delta",
+                toolCallId: callId,
+                inputDelta: JSON.stringify(part.functionCall.args),
+              };
+              yield {
+                type: "tool_end",
+                toolCallId: callId,
+                input: part.functionCall.args,
+              };
             }
           }
         }
@@ -282,15 +375,29 @@ export class GeminiModel implements ModelProvider {
 
       yield {
         type: "finish",
-        finishReason: options?.signal?.aborted ? "error" : toFinishReason(lastFinishReason),
-        usage: { prompt: inputTokens, completion: outputTokens, total: inputTokens + outputTokens },
+        finishReason: options?.signal?.aborted
+          ? "error"
+          : toFinishReason(lastFinishReason),
+        usage: {
+          prompt: inputTokens,
+          completion: outputTokens,
+          total: inputTokens + outputTokens,
+        },
       };
     } catch (err) {
-      yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: String(err) };
+      yield {
+        type: "finish",
+        finishReason: "error",
+        usage: zeroUsage(),
+        errorMsg: String(err),
+      };
     }
   }
 
-  async complete(messages: ModelMessage[], options?: CompletionOptions): Promise<ModelResponse> {
+  async complete(
+    messages: ModelMessage[],
+    options?: CompletionOptions,
+  ): Promise<ModelResponse> {
     return collectStream(this.stream(messages, options));
   }
 }

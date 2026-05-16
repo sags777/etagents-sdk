@@ -5,7 +5,7 @@
  * Includes MockModel for deterministic testing and shared streaming utilities.
  */
 
-export { collectStream, zeroUsage, sseLines, contentToString } from "./_stream.js";
+export { collectStream, zeroUsage, sseLines, contentToString, stripJsonFences } from "./_stream.js";
 export { MockModel, type MockResponse, type MockToolCall } from "./mock/mock.js";
 export { AnthropicModel, type AnthropicModelConfig } from "./anthropic/anthropic.js";
 export { OpenAIModel, type OpenAIModelConfig } from "./openai/openai.js";

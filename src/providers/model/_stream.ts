@@ -54,6 +54,19 @@ export function contentToString(content: string | { type: string; text?: string 
 }
 
 /**
+ * Strip markdown code fences from a model response that is expected to be
+ * plain JSON. Some models wrap their output in ```json ... ``` despite being
+ * instructed not to. This is model-agnostic — apply it anywhere a raw JSON
+ * string is expected from `model.complete()`.
+ */
+export function stripJsonFences(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
+}
+
+/**
  * Consume an async iterable of StreamChunks into a single ModelResponse.
  * Accumulates text deltas and captures the final finish chunk.
  */

@@ -200,6 +200,11 @@ export type { ExpressRequest, ExpressResponse, ExpressHandler, ExpressHandlerOpt
 export { McpClient } from "./mcp/index.js";
 export { McpServer } from "./mcp/index.js";
 
+// ── Collections ───────────────────────────────────────────────────
+
+export { browserMcp } from "./collections/mcps/browser/browser.js";
+export type { BrowserMcpOptions } from "./collections/mcps/browser/browser.js";
+
 // ── Scanner ────────────────────────────────────────────────────────
 
 export { ToolScanner } from "./scanner/index.js";

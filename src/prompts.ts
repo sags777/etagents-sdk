@@ -103,10 +103,15 @@ Rules:
  * @param agents - Array of `{ name: string; systemPrompt: string }` entries.
  */
 export function buildTriageRouterSystemPrompt(
-  agents: Array<{ name: string; systemPrompt: string }>,
+  agents: Array<{ name: string; systemPrompt: string; description?: string }>,
 ): string {
   const catalogue = agents
-    .map((a, i) => `${i + 1}. ${a.name} — ${a.systemPrompt.slice(0, 120).replace(/\n/g, " ")}`)
+    .map((a, i) => {
+      const blurb = a.description
+        ? a.description.replace(/\n/g, " ")
+        : a.systemPrompt.slice(0, 120).replace(/\n/g, " ");
+      return `${i + 1}. ${a.name} — ${blurb}`;
+    })
     .join("\n");
 
   return TRIAGE_ROUTER_SYSTEM_PROMPT_TEMPLATE.replace("{{catalogue}}", catalogue);

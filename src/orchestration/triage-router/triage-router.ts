@@ -2,6 +2,7 @@ import type { AgentDef } from "../../types/agent.js";
 import type { ModelProvider } from "../../interfaces/model.js";
 import type { RoutingDecision, RoutingStrategy, RoutingContext } from "../rule-router/rule-router.js";
 import { buildTriageRouterSystemPrompt } from "../../prompts.js";
+import { stripJsonFences } from "../../providers/model/_stream.js";
 
 // ---------------------------------------------------------------------------
 // TriageRouter
@@ -49,8 +50,18 @@ export class TriageRouter implements RoutingStrategy {
         { role: "user", content: message },
       ]);
 
-      const raw =
+      const rawContent =
         typeof response.message.content === "string" ? response.message.content : "";
+
+      const raw = stripJsonFences(rawContent);
+
+      if (!raw) {
+        return {
+          assignments: [{ agentDef: this.agents[0], parallel: false }],
+          confidence: 0,
+          reason: `Triage model returned empty response; falling back to ${this.agents[0].name}.`,
+        };
+      }
 
       const parsed = JSON.parse(raw) as {
         selectedAgent?: unknown;
@@ -82,12 +93,12 @@ export class TriageRouter implements RoutingStrategy {
         confidence,
         reason,
       };
-    } catch {
+    } catch (err) {
       // Fail-open: parse or network error → fall back to first agent
       return {
         assignments: [{ agentDef: this.agents[0], parallel: false }],
         confidence: 0,
-        reason: `Triage model call failed; falling back to ${this.agents[0].name}.`,
+        reason: `Triage model call failed (${err instanceof Error ? err.message : String(err)}); falling back to ${this.agents[0].name}.`,
       };
     }
   }

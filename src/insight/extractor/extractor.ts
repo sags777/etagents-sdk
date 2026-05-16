@@ -3,6 +3,7 @@ import type { ModelProvider } from "../../interfaces/model.js";
 import type { InsightConfig, InsightResult } from "../../types/insight.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import { INSIGHT_PROMPTS } from "../../prompts.js";
+import { stripJsonFences } from "../../providers/model/_stream.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -168,12 +169,7 @@ export async function runInsight(
         ? response.message.content
         : "";
 
-    // Strip markdown code fences (```json ... ``` or ``` ... ```) that some
-    // models emit despite the "no markdown" instruction.
-    const raw = rawContent
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/, "")
-      .trim();
+    const raw = stripJsonFences(rawContent);
 
     const parsed = JSON.parse(raw) as {
       facts?: unknown;

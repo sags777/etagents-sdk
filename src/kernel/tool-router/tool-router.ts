@@ -34,6 +34,31 @@ function cacheKey(toolName: string, args: Record<string, unknown>): string {
  * Never throws. Returns `{ isError: true }` when the tool is unknown or
  * the execution fails.
  */
+// ---------------------------------------------------------------------------
+// TimedToolResult — routeTool result paired with wall-clock execution time
+// ---------------------------------------------------------------------------
+
+export interface TimedToolResult {
+  result: ToolResult;
+  durationMs: number;
+}
+
+/**
+ * routeToolTimed — executes a tool call and returns the result together with
+ * the wall-clock duration of the execution. Timing starts before routing and
+ * stops once the result (or error) is returned, including cache hits.
+ */
+export async function routeToolTimed(
+  call: ToolCall,
+  registry: ToolRegistry,
+  hub: McpHub,
+  context: ToolContext,
+): Promise<TimedToolResult> {
+  const start = Date.now();
+  const result = await routeTool(call, registry, hub, context);
+  return { result, durationMs: Date.now() - start };
+}
+
 export async function routeTool(
   call: ToolCall,
   registry: ToolRegistry,

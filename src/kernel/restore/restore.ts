@@ -4,7 +4,8 @@ import { TurnCycle } from "../turn-cycle/turn-cycle.js";
 import { loadSuspend, removeSuspend, persistRun } from "../persist/persist.js";
 import { exitCodeToStatus, createRunServices, buildTurnCycleContext, applyDecisions } from "../_shared/_shared.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunResult, RunState, RunEvent, ExitCode } from "../../types/run.js";
+import type { RunResult, RunSummary, RunState, RunEvent, ExitCode } from "../../types/run.js";
+import { toRunSummary } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
 import type { ToolContext } from "../../types/tool.js";
 import { CheckpointError } from "../../errors.js";
@@ -154,7 +155,7 @@ export async function continueRun(
       totalUsage: ledger.state(),
     };
 
-    emit({ kind: "complete", result: runResult });
+    emit({ kind: "complete", result: toRunSummary(runResult) });
 
     // Index memory facts (fire-and-forget)
     pipe.index([]);

@@ -1,11 +1,10 @@
 import { startRun, continueRun } from "../../kernel/index.js";
 import { AgentRouter } from "../../orchestration/agent-router/agent-router.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunEvent } from "../../types/run.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
 import type { RestoreConfig } from "../../kernel/index.js";
 import type { StreamOptions } from "../stream-options.js";
-import { toSseName, encodeMessage, encodeError } from "./_helpers.js";
+import { encodeMessage, encodeError, createDeltaBuffer } from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // StreamTarget — union of single-agent and multi-agent entry points
@@ -108,13 +107,13 @@ export class SessionEventStream {
         for (const chunk of self.pending.splice(0)) {
           ctrl.enqueue(chunk);
         }
+
+        const { onEvent, flush } = createDeltaBuffer(ctrl, externalOnEvent);
+
         try {
           const runConfig = {
             ...config,
-            onEvent(event: RunEvent) {
-              ctrl.enqueue(encodeMessage(toSseName(event), event));
-              externalOnEvent?.(event);
-            },
+            onEvent,
           };
 
           if (target instanceof AgentRouter) {
@@ -123,8 +122,10 @@ export class SessionEventStream {
             await startRun(target, input, runConfig);
           }
         } catch (err) {
+          flush();
           ctrl.enqueue(encodeError(err instanceof Error ? err.message : String(err)));
         } finally {
+          flush();
           self.controller = undefined;
           ctrl.close();
         }
@@ -165,20 +166,22 @@ export class SessionEventStream {
         for (const chunk of self.pending.splice(0)) {
           ctrl.enqueue(chunk);
         }
+
+        const { onEvent, flush } = createDeltaBuffer(ctrl, externalOnEvent);
+
         try {
           const restoreConfig: RestoreConfig = {
             agent: target,
             signal: config.signal,
             metadata: config.metadata,
-            onEvent(event: RunEvent) {
-              ctrl.enqueue(encodeMessage(toSseName(event), event));
-              externalOnEvent?.(event);
-            },
+            onEvent,
           };
           await continueRun(checkpointId, decisions, restoreConfig);
         } catch (err) {
+          flush();
           ctrl.enqueue(encodeError(err instanceof Error ? err.message : String(err)));
         } finally {
+          flush();
           self.controller = undefined;
           ctrl.close();
         }

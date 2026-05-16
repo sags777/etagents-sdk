@@ -143,9 +143,22 @@ export interface ErrorEvent {
   code: string;
 }
 
+/**
+ * RunSummary — wire-safe subset of RunResult.
+ * Used by completion events so history (messages, toolCalls) never leaves the server.
+ * toolCallCount is derived from toolCalls.length at emit time.
+ */
+export type RunSummary = Omit<RunResult, "messages" | "toolCalls" | "agentResults"> & { toolCallCount: number };
+
+export function toRunSummary(result: RunResult): RunSummary {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { messages, toolCalls, agentResults, ...rest } = result;
+  return { ...rest, toolCallCount: toolCalls.length };
+}
+
 export interface CompleteEvent {
   kind: "complete";
-  result: RunResult;
+  result: RunSummary;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,5 +185,5 @@ export interface AgentRoutedEvent {
 export interface AgentCompleteEvent {
   kind: "agent_complete";
   agentName: string;
-  result: RunResult;
+  result: RunSummary;
 }

@@ -31,7 +31,7 @@ function zodToJsonSchema(schema: z.ZodType): JsonSchema {
  * `ToolError` rather than obscure type coercion bugs.
  */
 export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): ToolDef {
-  const { name, description, params, handler, sequential, timeoutMs, sensitive, cache } = config;
+  const { name, description, params, handler, sequential, timeoutMs, sensitive, cache, outputTruncation } = config;
 
   const schema = zodToJsonSchema(params);
 
@@ -59,5 +59,6 @@ export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): ToolDef 
     cache: cache
       ? { enabled: cache.enabled, ttlMs: cache.ttl != null ? cache.ttl * 1000 : cache.ttlMs }
       : undefined,
+    outputTruncation,
   };
 }

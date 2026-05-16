@@ -66,6 +66,12 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
     /** TTL for cached results in milliseconds. Defaults to no expiry. */
     ttlMs?: number;
   };
+  /**
+   * When set, stale copies of this tool's result in the message history are
+   * compressed to at most `maxChars` characters at the start of each new turn.
+   * The current turn's result is always sent in full.
+   */
+  outputTruncation?: { maxChars: number; suffix?: string };
 }
 
 export interface ToolConfig<T extends z.ZodType = z.ZodType> {
@@ -83,6 +89,8 @@ export interface ToolConfig<T extends z.ZodType = z.ZodType> {
    * `ttl` is in seconds; `ttlMs` is in milliseconds. `ttl` takes precedence when both are set.
    */
   cache?: { enabled: boolean; ttl?: number; ttlMs?: number };
+  /** When set, stale copies of this tool's result in the message history are compressed. */
+  outputTruncation?: { maxChars: number; suffix?: string };
 }
 
 // ---------------------------------------------------------------------------

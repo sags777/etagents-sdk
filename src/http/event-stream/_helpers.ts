@@ -45,3 +45,69 @@ export function encodeError(message: string): Uint8Array {
     code: "STREAM_ERROR",
   });
 }
+
+// ---------------------------------------------------------------------------
+// createDeltaBuffer — text_delta coalescing factory
+// ---------------------------------------------------------------------------
+
+/**
+ * createDeltaBuffer — returns an `onEvent` handler and a `flush` function
+ * that coalesce rapid single-character `text_delta` SSE frames into larger
+ * chunks before writing to the wire.
+ *
+ * Flush strategy (whichever fires first):
+ *   - Word/sentence boundary: the incoming delta ends with `\s . , ! ?`
+ *   - Trailing timer: 50 ms after the first un-flushed delta
+ *
+ * All non-`text_delta` events drain the buffer immediately so event ordering
+ * on the wire is preserved.
+ *
+ * Usage:
+ * ```ts
+ * const { onEvent, flush } = createDeltaBuffer(ctrl, externalOnEvent);
+ * try {
+ *   await startRun(agent, input, { ...config, onEvent });
+ * } catch (err) {
+ *   flush();
+ *   ctrl.enqueue(encodeError(...));
+ * } finally {
+ *   flush();          // drain any remaining buffer
+ *   ctrl.close();
+ * }
+ * ```
+ */
+export function createDeltaBuffer(
+  ctrl: ReadableStreamDefaultController<Uint8Array>,
+  externalOnEvent?: (event: RunEvent) => void,
+): { onEvent: (event: RunEvent) => void; flush: () => void } {
+  let deltaBuffer = "";
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentTurn = 0;
+
+  function flush() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (deltaBuffer.length === 0) return;
+    ctrl.enqueue(encodeMessage("run.text.delta", { kind: "text_delta", delta: deltaBuffer, turn: currentTurn }));
+    deltaBuffer = "";
+  }
+
+  function onEvent(event: RunEvent) {
+    if (event.kind === "text_delta") {
+      currentTurn = event.turn;
+      deltaBuffer += event.delta;
+      externalOnEvent?.(event);
+      if (/[\s.,!?]$/.test(event.delta)) {
+        flush();
+      } else if (!flushTimer) {
+        flushTimer = setTimeout(flush, 50);
+      }
+      return;
+    }
+    // Non-text_delta: drain buffer first to preserve event ordering on the wire
+    flush();
+    ctrl.enqueue(encodeMessage(toSseName(event), event));
+    externalOnEvent?.(event);
+  }
+
+  return { onEvent, flush };
+}

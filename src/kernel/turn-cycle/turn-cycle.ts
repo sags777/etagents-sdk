@@ -1,5 +1,6 @@
 import type { StreamChunk, TokenUsage, FinishReason } from "../../interfaces/model.js";
-import type { ToolCall, ToolResult } from "../../types/message.js";
+import type { ToolCall } from "../../types/message.js";
+import type { Message } from "../../types/message.js";
 import type { TurnCycleContext } from "../../types/kernel.js";
 import type { ToolCallRecord } from "../../types/tool.js";
 import type { RunState, RunEvent } from "../../types/run.js";
@@ -8,7 +9,8 @@ import type { PendingApproval } from "../../types/checkpoint.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import { safeHook } from "../lifecycle/lifecycle.js";
-import { routeTool } from "../tool-router/tool-router.js";
+import { routeToolTimed } from "../tool-router/tool-router.js";
+import type { TimedToolResult } from "../tool-router/tool-router.js";
 import type { ToolContext } from "../../types/tool.js";
 import { nanoid } from "nanoid";
 
@@ -97,6 +99,42 @@ function needsApproval(call: ToolCall, registry: ToolRegistry, hitl: HitlConfig)
   return def?.sensitive === true;
 }
 
+/**
+ * compressStaleToolResults — replaces oversized tool result messages from
+ * previous turns with a truncated version before the next model call.
+ *
+ * Only tool messages that appear BEFORE the last assistant message are
+ * candidates — those are results from prior turns that the model has already
+ * acted on. The most recent batch (after the last assistant message) is left
+ * untouched so the model sees full fidelity for the turn it is reacting to.
+ */
+export function compressStaleToolResults(messages: Message[], registry: ToolRegistry): void {
+  // Build toolCallId → toolName map from every assistant message
+  const callNameMap = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role === "assistant" && msg.toolCalls) {
+      for (const tc of msg.toolCalls) callNameMap.set(tc.id, tc.name);
+    }
+  }
+
+  // Find the last assistant message — tool results after it belong to the
+  // current turn and must NOT be compressed.
+  const lastAssistantIdx = messages.reduceRight(
+    (found, msg, i) => (found === -1 && msg.role === "assistant" ? i : found),
+    -1,
+  );
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "tool" || i >= lastAssistantIdx || !msg.toolCallId) continue;
+    const toolName = callNameMap.get(msg.toolCallId);
+    if (!toolName) continue;
+    const trunc = registry.get(toolName)?.outputTruncation;
+    if (!trunc || msg.content.length <= trunc.maxChars) continue;
+    msg.content = msg.content.slice(0, trunc.maxChars) + (trunc.suffix ?? "…[truncated]");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // TurnCycle
 // ---------------------------------------------------------------------------
@@ -115,6 +153,10 @@ export class TurnCycle {
     // 1. onTurnStart hook
     await safeHook(() => Promise.resolve(ctx.hooks.onTurnStart?.(turnNumber, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
     ctx.emit({ kind: "turn_start", turn: turnNumber });
+
+    // 1b. Compress stale tool results from previous turns before sending to model.
+    // The current turn’s results (after the last assistant message) are left intact.
+    compressStaleToolResults(state.messages, ctx.registry);
 
     // 2. Mask messages before sending to model
     const maskedMessages = await ctx.fence.maskMessages(state.messages);
@@ -198,7 +240,13 @@ export class TurnCycle {
       metadata: ctx.metadata,
     };
 
-    const results = await dispatchToolCalls(
+    // Emit tool_call (→ tool.invoke) for each call before dispatch so clients
+    // see the intent immediately even if execution takes seconds.
+    for (const call of collected.toolCalls) {
+      ctx.emit({ kind: "tool_call", toolCall: call, agentName: ctx.agentName });
+    }
+
+    const timedResults = await dispatchToolCalls(
       collected.toolCalls,
       ctx.registry,
       ctx.hub,
@@ -206,14 +254,14 @@ export class TurnCycle {
     );
 
     // 13. Fire hooks + append tool results
-    for (const result of results) {
+    for (const { result, durationMs } of timedResults) {
       await safeHook(() => Promise.resolve(ctx.hooks.onToolResult?.(result, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
       ctx.emit({
         kind: "tool_result",
         toolCallId: result.toolCallId,
         result: result.content,
         isError: result.isError,
-        durationMs: 0,
+        durationMs,
       });
       state.messages.push({
         role: "tool",
@@ -224,14 +272,14 @@ export class TurnCycle {
 
     // Record tool calls
     for (const call of collected.toolCalls) {
-      const result = results.find((r) => r.toolCallId === call.id);
-      if (result) {
+      const timed = timedResults.find((r) => r.result.toolCallId === call.id);
+      if (timed) {
         const record: ToolCallRecord = {
           id: call.id || nanoid(),
           name: call.name,
           args: call.args,
-          result: result.content,
-          durationMs: 0,
+          result: timed.result.content,
+          durationMs: timed.durationMs,
           agentName: ctx.agentName,
         };
         state.toolCallRecords.push(record);
@@ -251,7 +299,7 @@ async function dispatchToolCalls(
   registry: ToolRegistry,
   hub: McpHub,
   context: ToolContext,
-): Promise<ToolResult[]> {
+): Promise<TimedToolResult[]> {
   const sequential: ToolCall[] = [];
   const parallel: ToolCall[] = [];
 
@@ -266,19 +314,19 @@ async function dispatchToolCalls(
 
   // Run parallel calls concurrently
   const parallelResults = await Promise.all(
-    parallel.map((call) => routeTool(call, registry, hub, context)),
+    parallel.map((call) => routeToolTimed(call, registry, hub, context)),
   );
 
   // Run sequential calls one-at-a-time
-  const serialResults: ToolResult[] = [];
+  const serialResults: TimedToolResult[] = [];
   for (const call of sequential) {
-    serialResults.push(await routeTool(call, registry, hub, context));
+    serialResults.push(await routeToolTimed(call, registry, hub, context));
   }
 
   // Restore original order
-  const resultMap = new Map<string, ToolResult>();
+  const resultMap = new Map<string, TimedToolResult>();
   for (const r of [...parallelResults, ...serialResults]) {
-    resultMap.set(r.toolCallId, r);
+    resultMap.set(r.result.toolCallId, r);
   }
   return calls.map((c) => resultMap.get(c.id)!);
 }

@@ -1,6 +1,7 @@
 import { startRun } from "../../kernel/run/run.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunResult } from "../../types/run.js";
+import type { RunConfig, RunResult, RunSummary } from "../../types/run.js";
+import { toRunSummary } from "../../types/run.js";
 import type { RoutingStrategy } from "../rule-router/rule-router.js";
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ export class AgentRouter {
     const parallelResults = await Promise.all(
       parallelAssignments.map(async (a) => {
         const result = await startRun(a.agentDef, a.subPrompt ?? message, config);
-        emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result });
+        emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result: toRunSummary(result) });
         return { name: a.agentDef.name, result };
       }),
     );
@@ -99,7 +100,7 @@ export class AgentRouter {
     const serialResults: Array<{ name: string; result: RunResult }> = [];
     for (const a of sequentialAssignments) {
       const result = await startRun(a.agentDef, a.subPrompt ?? message, config);
-      emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result });
+      emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result: toRunSummary(result) });
       serialResults.push({ name: a.agentDef.name, result });
     }
 

@@ -130,6 +130,7 @@ export function createAgent(config: AgentConfig): AgentDef {
 
     maxTurns: config.maxTurns ?? DEFAULT_CONFIG.maxTurns,
     maxTokens: config.maxTokens ?? DEFAULT_CONFIG.maxTokens,
+    toolTruncation: config.toolTruncation,
   };
 
   return Object.freeze(def);

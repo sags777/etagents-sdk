@@ -91,6 +91,14 @@ export interface AgentConfig {
 
   maxTurns?: number;
   maxTokens?: number;
+  /**
+   * Per-tool output truncation overrides, keyed by tool name.
+   * Primarily used to limit large MCP tool outputs (e.g. DOM snapshots) in
+   * the message history. Stale copies of a tool's result are compressed to
+   * `maxChars` at the start of each new turn; the current turn's result is
+   * always sent in full.
+   */
+  toolTruncation?: Record<string, { maxChars: number; suffix?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,4 +133,6 @@ export interface AgentDef {
 
   maxTurns: number;
   maxTokens: number;
+  /** Per-tool output truncation overrides — see AgentConfig.toolTruncation. */
+  toolTruncation?: Record<string, { maxChars: number; suffix?: string }>;
 }

@@ -140,6 +140,7 @@ export class OpenAIModel implements ModelProvider {
     const callAccums = new Map<number, CallAccum>();
     let usage: TokenUsage = zeroUsage();
     let lastFinishReason: string | null = null;
+    let sawFinishReason = false;
 
     try {
       const body: Record<string, unknown> = {
@@ -214,6 +215,7 @@ export class OpenAIModel implements ModelProvider {
 
           if (choice.finish_reason) {
             lastFinishReason = choice.finish_reason;
+            sawFinishReason = true;
 
             if (lastFinishReason === "tool_calls") {
               for (const acc of callAccums.values()) {
@@ -223,16 +225,13 @@ export class OpenAIModel implements ModelProvider {
               }
               callAccums.clear();
             }
-
-            yield { type: "finish", finishReason: toFinishReason(lastFinishReason), usage };
-            return;
           }
         }
       }
 
       yield {
         type: "finish",
-        finishReason: options?.signal?.aborted ? "error" : toFinishReason(lastFinishReason),
+        finishReason: options?.signal?.aborted ? "error" : toFinishReason(sawFinishReason ? lastFinishReason : null),
         usage,
       };
     } catch (err) {

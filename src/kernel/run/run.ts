@@ -6,7 +6,8 @@ import { persistRun, persistSuspend } from "../persist/persist.js";
 import { exitCodeToStatus, createRunServices, buildTurnCycleContext, applyDecisions } from "../_shared/_shared.js";
 import { runInsight } from "../../insight/extractor/extractor.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunResult, RunState, ExitCode } from "../../types/run.js";
+import type { RunConfig, RunResult, RunSummary, RunState, ExitCode } from "../../types/run.js";
+import { toRunSummary } from "../../types/run.js";
 import type { SessionSnapshot, SnapshotMeta } from "../../types/session.js";
 import type { ToolContext } from "../../types/tool.js";
 
@@ -133,7 +134,7 @@ export async function startRun(
           checkpointId,
           pendingApprovals: result.pendingApprovals,
         };
-        emit({ kind: "complete", result: suspendResult });
+        emit({ kind: "complete", result: toRunSummary(suspendResult) });
         return suspendResult;
       }
 
@@ -178,7 +179,7 @@ export async function startRun(
       totalUsage: ledger.state(),
     };
 
-    emit({ kind: "complete", result: runResult });
+    emit({ kind: "complete", result: toRunSummary(runResult) });
     return runResult;
   } finally {
     await hub.disconnect();

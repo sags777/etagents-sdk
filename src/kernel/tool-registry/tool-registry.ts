@@ -34,6 +34,7 @@ export class ToolRegistry {
           const result = await hub.callTool(mcpTool.name, args);
           return typeof result === "string" ? result : JSON.stringify(result);
         },
+        outputTruncation: agent.toolTruncation?.[mcpTool.name],
       };
       // Register under the namespaced name (e.g. "mcp__browser__browser_navigate")
       registry.reg.set(proxy.name, proxy);

@@ -36,15 +36,46 @@ SSE event names use dot-notation and differ from the `RunEvent.kind` strings:
 
 | `RunEvent.kind` | SSE event name | When |
 |---|---|---|
-| `turn_start`, `turn_end`, `warning`, `exceeded` | `run.status` | Turn lifecycle + budget |
+| `turn_start`, `turn_end`, `warning`, `exceeded`, `agent_routed`, `agent_complete` | `run.status` | Turn lifecycle, budget, and router status |
 | `text_delta` | `run.text.delta` | Incremental model text |
 | `text_done` | `run.text.done` | Completed turn text |
 | `tool_call` | `tool.invoke` | Before each tool executes |
 | `tool_result` | `tool.result` | After each tool returns |
 | `error` | `run.error` | Non-fatal error |
-| `complete` | `run.done` | Run exits (any status) |
+| `complete` | `run.done` | Run exits (any status, `RunSummary` payload) |
 
 Each event's `data` is a JSON-serialised `RunEvent` object.
+
+---
+
+## Completion payload shape
+
+`run.done` and router `agent_complete` status events carry `RunSummary`, not the full `RunResult`.
+
+`RunSummary` includes:
+- `response`
+- `status`
+- `turns`
+- `totalUsage`
+- `checkpointId`
+- `pendingApprovals`
+- `toolCallCount`
+
+This keeps wire payloads small and prevents full history (`messages`, `toolCalls`, `agentResults`) from being emitted over SSE.
+
+---
+
+## text_delta coalescing
+
+`SessionEventStream` coalesces wire-level `run.text.delta` frames to avoid one-frame-per-character streaming:
+
+- Trailing flush after 150 ms of inactivity
+- Early flush on sentence/paragraph boundaries once at least 24 chars are buffered
+- Forced flush when buffer reaches 512 chars
+
+Any non-`text_delta` event flushes the delta buffer first, preserving event order.
+
+In-process `startRun(..., { onEvent })` callbacks still receive raw per-chunk `text_delta` events.
 
 ---
 
@@ -153,6 +184,7 @@ source.on("tool.invoke", (event) => {
 source.on("run.done", (event) => {
   if (event.kind === "complete") {
     console.log("Response:", event.result.response);
+    console.log("Tool calls:", event.result.toolCallCount);
   }
 });
 

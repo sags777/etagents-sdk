@@ -52,6 +52,7 @@ const agent = createAgent({
 | `hooks` | `LifecycleHooks` | no-op | Turn/tool callbacks |
 | `maxTurns` | `number` | `20` | Hard turn cap |
 | `maxTokens` | `number` | `8192` | Token budget per run |
+| `toolTruncation` | `Record<string, { maxChars: number; suffix?: string }>` | unset | Per-tool stale-output compression overrides (useful for MCP tools) |
 
 ---
 
@@ -90,8 +91,11 @@ const searchRecords = defineTool({
 |---|---|---|---|
 | `sequential` | `boolean` | `false` | If `true`, this tool never runs concurrently with other tools in the same turn |
 | `timeoutMs` | `number` | `30000` | Per-tool timeout; overrides the session default |
+| `outputTruncation` | `{ maxChars: number; suffix?: string }` | unset | Compress stale copies of this tool's output from prior turns |
 
 See [Concurrency](../guides/advanced/concurrency) and [Tools](../guides/essentials/streaming) for more.
+
+`outputTruncation` only applies to prior-turn tool messages. The latest tool results are always kept in full for the model's next reasoning step.
 
 ---
 

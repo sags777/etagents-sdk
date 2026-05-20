@@ -56,8 +56,9 @@ export function encodeError(message: string): Uint8Array {
  * chunks before writing to the wire.
  *
  * Flush strategy (whichever fires first):
- *   - Word/sentence boundary: the incoming delta ends with `\s . , ! ?`
- *   - Trailing timer: 50 ms after the first un-flushed delta
+ *   - Sentence/paragraph boundary after a minimum buffered size
+ *   - Max buffer guardrail (to cap latency/memory)
+ *   - Trailing timer: 150 ms after the most recent un-flushed delta
  *
  * All non-`text_delta` events drain the buffer immediately so event ordering
  * on the wire is preserved.
@@ -80,6 +81,11 @@ export function createDeltaBuffer(
   ctrl: ReadableStreamDefaultController<Uint8Array>,
   externalOnEvent?: (event: RunEvent) => void,
 ): { onEvent: (event: RunEvent) => void; flush: () => void } {
+  const TRAILING_FLUSH_MS = 150;
+  const MIN_BOUNDARY_FLUSH_CHARS = 24;
+  const MAX_BUFFER_CHARS = 512;
+  const SENTENCE_OR_PARAGRAPH_BOUNDARY = /(?:[.!?](?:["')\]]+)?\s$|\n{2,}$)/;
+
   let deltaBuffer = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let currentTurn = 0;
@@ -96,10 +102,17 @@ export function createDeltaBuffer(
       currentTurn = event.turn;
       deltaBuffer += event.delta;
       externalOnEvent?.(event);
-      if (/[\s.,!?]$/.test(event.delta)) {
+
+      const shouldFlushForBoundary =
+        deltaBuffer.length >= MIN_BOUNDARY_FLUSH_CHARS &&
+        SENTENCE_OR_PARAGRAPH_BOUNDARY.test(deltaBuffer);
+
+      if (shouldFlushForBoundary || deltaBuffer.length >= MAX_BUFFER_CHARS) {
         flush();
-      } else if (!flushTimer) {
-        flushTimer = setTimeout(flush, 50);
+      } else {
+        // Trailing timer: coalesce until stream activity pauses.
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flush, TRAILING_FLUSH_MS);
       }
       return;
     }

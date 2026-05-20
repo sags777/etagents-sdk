@@ -151,6 +151,7 @@ const agent = createAgent({
 | `hooks` | `LifecycleHooks` | no-op hooks | Turn/tool lifecycle callbacks |
 | `maxTurns` | `number` | `20` | Hard turn cap |
 | `maxTokens` | `number` | `8192` | Token budget per run |
+| `toolTruncation` | `Record<string, { maxChars: number; suffix?: string }>` | unset | Per-tool stale-output compression overrides (primarily for MCP tools) |
 
 ### cloneAgent
 
@@ -204,6 +205,7 @@ const searchDatabase = defineTool({
 | `handler` | `(args) => Promise<string>` | Async implementation — must return a string |
 | `sequential` | `boolean?` | If `true`, never runs concurrently with other tool calls |
 | `timeoutMs` | `number?` | Per-tool timeout; overrides session `toolTimeoutMs` |
+| `outputTruncation` | `{ maxChars: number; suffix?: string }?` | Compresses stale copies of this tool's output in prior turns |
 
 ### agentAsTool + agentToManifest
 
@@ -461,6 +463,43 @@ const writeRecord = defineTool({
 
 The kernel partitions tool calls into a parallel batch and a sequential queue per turn. Parallel tools execute first (via `Promise.all`), sequential tools run after in order.
 
+### Stale Output Compression (Large Tool Results)
+
+Large tool outputs (for example, DOM snapshots) can bloat subsequent model turns if they remain in full inside history. The kernel now compresses **stale** tool outputs at the start of each new turn.
+
+- The current turn's tool outputs are always kept in full.
+- Only prior-turn tool messages are compressed.
+- Compression is opt-in per tool.
+
+```typescript
+const browserSnapshot = defineTool({
+  name: "browser_snapshot",
+  description: "Returns a DOM snapshot of the current page",
+  params: z.object({}),
+  outputTruncation: {
+    maxChars: 8_000,
+    suffix: "\n...[DOM truncated for context]",
+  },
+  handler: async () => getSnapshot(),
+});
+```
+
+For MCP tools (which are auto-registered), use `AgentConfig.toolTruncation`:
+
+```typescript
+const agent = createAgent({
+  name: "research",
+  systemPrompt: "...",
+  mcp: [/* ... */],
+  toolTruncation: {
+    mcp__browser__browser_snapshot: {
+      maxChars: 8_000,
+      suffix: "\n...[DOM truncated for context]",
+    },
+  },
+});
+```
+
 ### Tool Timeout
 
 ```typescript
@@ -595,12 +634,28 @@ const result = await startRun(agent, input, {
         console.error(event.code, event.message);
         break;
       case "complete":
-        console.log("Done:", event.result.status);
+        console.log("Done:", event.result.status, "tool calls:", event.result.toolCallCount);
         break;
     }
   },
 });
 ```
+
+### RunSummary (completion event payload)
+
+`complete` and `agent_complete` events carry a `RunSummary` payload, not the full `RunResult`. This keeps wire payloads safe and bounded across SSE and other transports.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | `string` | Final model response |
+| `status` | `RunStatus` | Final run status |
+| `turns` | `number` | LLM turns consumed |
+| `totalUsage` | `TokenUsage?` | Aggregate token usage |
+| `checkpointId` | `string?` | Present for suspended HITL runs |
+| `pendingApprovals` | `PendingApproval[]?` | Pending approvals when suspended |
+| `toolCallCount` | `number` | Count of tool calls (`toolCalls.length`) |
+
+Use the `RunResult` returned from `startRun()` / `router.run()` when you need full `messages` and `toolCalls` arrays.
 
 | Event kind | Fields | When |
 |-----------|--------|------|
@@ -612,9 +667,9 @@ const result = await startRun(agent, input, {
 | `tool_result` | `toolCallId`, `result`, `isError`, `durationMs` | After each tool returns |
 | `warning`, `exceeded` | `state` | Budget warning and budget limit events |
 | `agent_routed` | `agentName`, `confidence`, `reason` | Emitted by `AgentRouter` before sub-runs start |
-| `agent_complete` | `agentName`, `result` | Emitted by `AgentRouter` when a sub-run ends |
+| `agent_complete` | `agentName`, `result: RunSummary` | Emitted by `AgentRouter` when a sub-run ends |
 | `error` | `message`, `code` | On any non-fatal error |
-| `complete` | `result` | When the run exits |
+| `complete` | `result: RunSummary` | When the run exits |
 
 ### Lifecycle Hooks
 
@@ -1117,13 +1172,21 @@ return new Response(body, { headers: SSE_HEADERS });
 
 | RunEvent kind | SSE event name | When |
 |---------------|---------------|------|
-| `turn_start`, `turn_end`, `warning`, `exceeded` | `run.status` | Turn lifecycle + budget |
+| `turn_start`, `turn_end`, `warning`, `exceeded`, `agent_routed`, `agent_complete` | `run.status` | Turn lifecycle, budget, and router status |
 | `text_delta` | `run.text.delta` | Incremental model text |
 | `text_done` | `run.text.done` | Completed turn text |
 | `tool_call` | `tool.invoke` | Before each tool executes |
 | `tool_result` | `tool.result` | After each tool returns |
 | `error` | `run.error` | On error |
-| `complete` | `run.done` | Run exits |
+| `complete` | `run.done` | Run exits with `RunSummary` payload |
+
+`SessionEventStream` coalesces wire-level `run.text.delta` frames to reduce SSE spam:
+
+- Trailing flush after 150 ms of inactivity
+- Early flush on sentence/paragraph boundaries (after a minimum buffer)
+- Hard flush when buffer reaches 512 chars
+
+In-process `onEvent` callbacks still receive every raw `text_delta` event.
 
 **`SSE_HEADERS`** — `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`.
 
@@ -1184,7 +1247,10 @@ const source = new SessionEventSource("/api/agent", {
 // Typed callbacks
 source.on("tool.invoke", (event) => console.log("Calling tool:", event.kind));
 source.on("run.done", (event) => {
-  if (event.kind === "complete") console.log("Result:", event.result.response);
+  if (event.kind === "complete") {
+    console.log("Result:", event.result.response);
+    console.log("Tool calls:", event.result.toolCallCount);
+  }
 });
 
 // Or async iteration
@@ -1195,6 +1261,7 @@ for await (const event of source) {
 // Or await the full result
 const done = await source.result;
 console.log(done.result.response);
+console.log(done.result.toolCallCount);
 ```
 
 `.close()` cancels the SSE connection. `.readyState` is `"connecting" | "open" | "closed"`.

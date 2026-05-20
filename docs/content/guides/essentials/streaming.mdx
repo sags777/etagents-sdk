@@ -46,6 +46,8 @@ console.log(result.response);
 
 `onEvent` fires synchronously on every event. `startRun` still returns a `RunResult` when the run completes — `onEvent` is an observation mechanism, not a replacement for the return value.
 
+Completion events (`complete` and `agent_complete`) carry a `RunSummary` payload, not the full `RunResult`. Use the return value of `startRun()` / `router.run()` when you need full `messages` or `toolCalls`.
+
 ---
 
 ## RunEvent types
@@ -63,9 +65,9 @@ All events are discriminated on `kind`. TypeScript narrows the type correctly in
 | `warning` | Budget warning threshold crossed | `state: { prompt, completion, total }` |
 | `exceeded` | Token budget hit | `state: { prompt, completion, total }` |
 | `agent_routed` | `AgentRouter` selected a sub-agent | `agentName`, `confidence`, `reason` |
-| `agent_complete` | A sub-agent finished | `agentName`, `result` |
+| `agent_complete` | A sub-agent finished | `agentName`, `result: RunSummary` |
 | `error` | Non-fatal error | `message`, `code` |
-| `complete` | Run exits (any status) | `result: RunResult` |
+| `complete` | Run exits (any status) | `result: RunSummary` |
 
 ### turn_start / turn_end
 
@@ -79,6 +81,8 @@ case "turn_end":
 ```
 
 ### tool_call / tool_result
+
+`tool_call` is emitted immediately before dispatch, so you can show pending work even for long-running tools.
 
 ```typescript
 case "tool_call":

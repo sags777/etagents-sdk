@@ -15,36 +15,48 @@ export function register(program: Command): void {
     .description("Scaffold a new agent file in the current directory.")
     .option("--with-tools", "Include example tool scaffolds")
     .option("--with-mcp", "Include MCP client setup boilerplate")
-    .action((
-      agentName: string,
-      opts: { withTools?: boolean; withMcp?: boolean },
-    ) => {
-      const fileName = `${agentName}.agent.ts`;
-      const filePath = path.resolve(fileName);
+    .action(
+      (agentName: string, opts: { withTools?: boolean; withMcp?: boolean }) => {
+        const fileName = `${agentName}.agent.ts`;
+        const filePath = path.resolve(fileName);
 
-      if (fs.existsSync(filePath)) {
-        console.error(`Error: File "${fileName}" already exists.`);
-        process.exit(1);
-      }
+        if (fs.existsSync(filePath)) {
+          console.error(`Error: File "${fileName}" already exists.`);
+          process.exit(1);
+        }
 
-      const content = generateTemplate(agentName, opts.withTools ?? false, opts.withMcp ?? false);
-      fs.writeFileSync(filePath, content, "utf-8");
-      console.log(`✓ Created ${fileName}`);
-    });
+        const content = generateTemplate(
+          agentName,
+          opts.withTools ?? false,
+          opts.withMcp ?? false,
+        );
+        fs.writeFileSync(filePath, content, "utf-8");
+        console.log(`✓ Created ${fileName}`);
+      },
+    );
 }
 
 function camelCase(str: string): string {
   return str
-    .replace(/[^a-zA-Z0-9]+(.)/g, (_, ch: string) => (ch as string).toUpperCase())
+    .replace(/[^a-zA-Z0-9]+(.)/g, (_, ch: string) =>
+      (ch as string).toUpperCase(),
+    )
     .replace(/^[A-Z]/, (ch) => ch.toLowerCase());
 }
 
-function generateTemplate(name: string, withTools: boolean, withMcp: boolean): string {
+function generateTemplate(
+  name: string,
+  withTools: boolean,
+  withMcp: boolean,
+): string {
   const toolImport = withTools ? ", defineTool" : "";
   const zodImport = withTools ? '\nimport { z } from "zod";' : "";
-  const mcpImport = withMcp ? '\nimport type { McpServerConfig } from "@etagents/sdk";' : "";
+  const mcpImport = withMcp
+    ? '\nimport type { McpServerConfig } from "@etagents/sdk";'
+    : "";
 
-  const toolDefs = withTools ? `
+  const toolDefs = withTools
+    ? `
 // ---------------------------------------------------------------------------
 // Tools
 // ---------------------------------------------------------------------------
@@ -60,9 +72,11 @@ const greet = defineTool({
   },
 });
 
-` : "";
+`
+    : "";
 
-  const mcpDefs = withMcp ? `
+  const mcpDefs = withMcp
+    ? `
 // ---------------------------------------------------------------------------
 // MCP servers (uncomment and configure)
 // ---------------------------------------------------------------------------
@@ -74,7 +88,8 @@ const greet = defineTool({
 //   args: ["@modelcontextprotocol/server-everything"],
 // };
 
-` : "";
+`
+    : "";
 
   const toolsList = withTools ? "[greet]" : "[]";
   const mcpList = withMcp ? "  // mcp: [myMcp]," : "";

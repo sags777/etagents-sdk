@@ -19,24 +19,32 @@ export function register(program: Command): void {
     .option("--embedder-key <key>", "OpenAI API key for embeddings")
     .option("--scope <scope>", "Memory scope: agent | session | user", "agent")
     .option("--session-id <id>", "Session ID (used for indexing)")
-    .option("--store <spec>", "Session store for indexing: file:<dir> or redis:<url>", "file:.sessions")
+    .option(
+      "--store <spec>",
+      "Session store for indexing: file:<dir> or redis:<url>",
+      "file:.sessions",
+    )
     .option("--json", "Machine-readable JSON output")
     .argument("[query]", "Search query (for search subcommand)")
-    .action(async (
-      subcommand: string,
-      query: string | undefined,
-      opts: Record<string, unknown>,
-    ) => {
-      switch (subcommand) {
-        case "index":
-          return memoryIndex(opts);
-        case "search":
-          return memorySearch(query, opts);
-        default:
-          console.error(`Unknown subcommand: "${subcommand}". Valid: search, index`);
-          process.exit(1);
-      }
-    });
+    .action(
+      async (
+        subcommand: string,
+        query: string | undefined,
+        opts: Record<string, unknown>,
+      ) => {
+        switch (subcommand) {
+          case "index":
+            return memoryIndex(opts);
+          case "search":
+            return memorySearch(query, opts);
+          default:
+            console.error(
+              `Unknown subcommand: "${subcommand}". Valid: search, index`,
+            );
+            process.exit(1);
+        }
+      },
+    );
 }
 
 interface MemoryOpts {
@@ -56,7 +64,9 @@ interface MemoryOpts {
 async function resolveMemory(opts: MemoryOpts) {
   const embedderKey = opts.embedderKey ?? process.env.OPENAI_API_KEY ?? "";
   if (!embedderKey) {
-    console.error("Error: Embedding API key required. Use --embedder-key or set OPENAI_API_KEY.");
+    console.error(
+      "Error: Embedding API key required. Use --embedder-key or set OPENAI_API_KEY.",
+    );
     process.exit(1);
   }
 
@@ -67,10 +77,15 @@ async function resolveMemory(opts: MemoryOpts) {
     async embed(text: string): Promise<number[]> {
       const res = await fetch("https://api.openai.com/v1/embeddings", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${embedderKey}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${embedderKey}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
       });
-      const json = await res.json() as { data: Array<{ embedding: number[] }> };
+      const json = (await res.json()) as {
+        data: Array<{ embedding: number[] }>;
+      };
       return json.data[0].embedding;
     },
   };
@@ -97,15 +112,24 @@ async function memoryIndex(opts: MemoryOpts): Promise<void> {
 
   if (storeSpec.startsWith("redis:")) {
     const { RedisStore } = await import("../../providers/store/index.js");
-    const rs = await RedisStore.connect({ url: storeSpec.slice("redis:".length), namespace: "cli" });
-    const snap = await rs.read<{ messages?: Array<{ role: string; content: string }> }>(`${SESSION_PREFIX}${sessionId}`);
+    const rs = await RedisStore.connect({
+      url: storeSpec.slice("redis:".length),
+      namespace: "cli",
+    });
+    const snap = await rs.read<{
+      messages?: Array<{ role: string; content: string }>;
+    }>(`${SESSION_PREFIX}${sessionId}`);
     await rs.quit();
     messages = snap?.messages;
   } else {
     const { FileStore } = await import("../../providers/store/index.js");
-    const dir = storeSpec.startsWith("file:") ? storeSpec.slice("file:".length) : storeSpec;
+    const dir = storeSpec.startsWith("file:")
+      ? storeSpec.slice("file:".length)
+      : storeSpec;
     const fs = new FileStore(dir || ".sessions");
-    const snap = await fs.read<{ messages?: Array<{ role: string; content: string }> }>(`${SESSION_PREFIX}${sessionId}`);
+    const snap = await fs.read<{
+      messages?: Array<{ role: string; content: string }>;
+    }>(`${SESSION_PREFIX}${sessionId}`);
     messages = snap?.messages;
   }
 
@@ -133,9 +157,14 @@ async function memoryIndex(opts: MemoryOpts): Promise<void> {
   console.log(`Indexed ${indexed} messages from session "${sessionId}".`);
 }
 
-async function memorySearch(query: string | undefined, opts: MemoryOpts): Promise<void> {
+async function memorySearch(
+  query: string | undefined,
+  opts: MemoryOpts,
+): Promise<void> {
   if (!query) {
-    console.error('Error: Missing search query. Usage: eta memory search "your query"');
+    console.error(
+      'Error: Missing search query. Usage: eta memory search "your query"',
+    );
     process.exit(1);
   }
 
@@ -160,7 +189,9 @@ async function memorySearch(query: string | undefined, opts: MemoryOpts): Promis
 
   console.log(`\nFound ${results.length} memories:\n`);
   for (let i = 0; i < results.length; i++) {
-    console.log(`  ${i + 1}. [score=${results[i].score.toFixed(3)}] ${results[i].text}`);
+    console.log(
+      `  ${i + 1}. [score=${results[i].score.toFixed(3)}] ${results[i].text}`,
+    );
   }
   console.log();
 }

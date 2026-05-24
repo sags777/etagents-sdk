@@ -4,7 +4,7 @@ import type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
-} from "../../../interfaces/memory.js";
+} from "../../../contracts/memory.js";
 
 interface StoredEntry extends MemoryEntry {
   indexedAt: number;
@@ -59,16 +59,26 @@ function wordOverlap(query: string, target: string): number {
 // ---------------------------------------------------------------------------
 
 /** True iff every defined field in `filter` matches the corresponding field of `scope`. */
-function scopeSubset(scope: MemoryScope, filter: Partial<MemoryScope>): boolean {
-  if (filter.agentId !== undefined && scope.agentId !== filter.agentId) return false;
-  if (filter.namespace !== undefined && scope.namespace !== filter.namespace) return false;
-  if (filter.userId !== undefined && scope.userId !== filter.userId) return false;
+function scopeSubset(
+  scope: MemoryScope,
+  filter: Partial<MemoryScope>,
+): boolean {
+  if (filter.agentId !== undefined && scope.agentId !== filter.agentId)
+    return false;
+  if (filter.namespace !== undefined && scope.namespace !== filter.namespace)
+    return false;
+  if (filter.userId !== undefined && scope.userId !== filter.userId)
+    return false;
   return true;
 }
 
 /** Exact match on all scope fields (userId treated as undefined when absent). */
 function scopeEqual(a: MemoryScope, b: MemoryScope): boolean {
-  return a.agentId === b.agentId && a.namespace === b.namespace && a.userId === b.userId;
+  return (
+    a.agentId === b.agentId &&
+    a.namespace === b.namespace &&
+    a.userId === b.userId
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +126,10 @@ export class InMemory implements MemoryProvider {
     }
   }
 
-  async search(query: string, options?: MemorySearchOptions): Promise<MemoryMatch[]> {
+  async search(
+    query: string,
+    options?: MemorySearchOptions,
+  ): Promise<MemoryMatch[]> {
     const limit = options?.limit ?? 20;
     const minScore = options?.minScore ?? 0;
     const scopeFilter = options?.scope;
@@ -134,7 +147,8 @@ export class InMemory implements MemoryProvider {
     const results: MemoryMatch[] = [];
 
     for (const entry of this.store.values()) {
-      if (scopeFilter !== undefined && !scopeSubset(entry.scope, scopeFilter)) continue;
+      if (scopeFilter !== undefined && !scopeSubset(entry.scope, scopeFilter))
+        continue;
 
       let score: number;
       if (queryVec && entry.vector) {
@@ -144,7 +158,12 @@ export class InMemory implements MemoryProvider {
       }
 
       if (score > 0 && score >= minScore) {
-        results.push({ id: entry.id, text: entry.text, score, metadata: entry.metadata });
+        results.push({
+          id: entry.id,
+          text: entry.text,
+          score,
+          metadata: entry.metadata,
+        });
       }
     }
 

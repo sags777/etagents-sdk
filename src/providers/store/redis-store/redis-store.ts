@@ -1,7 +1,9 @@
 import { type RedisClientType } from "redis";
-import type { StoreProvider, WriteOptions } from "../../../interfaces/store.js";
-import { StoreError } from "../../../errors.js";
-import { createRedisClient } from "../../_redis.js";
+import type { StoreProvider, WriteOptions } from "../../../contracts/store.js";
+import { createRedisClient } from "../../redis/client.js";
+import { wrapStoreError } from "../shared/store-utils.js";
+import { storeKey } from "../../../kernel/keys.js";
+import { STORE_KEYS } from "../../../constants.js";
 
 /**
  * RedisStoreConfig — connection and namespace options.
@@ -42,22 +44,24 @@ export class RedisStore implements StoreProvider {
    * Pass `config.client` to reuse an existing connection (e.g. shared with RedisMemory).
    */
   static async connect(config: RedisStoreConfig): Promise<RedisStore> {
-    const client = config.client ?? await createRedisClient(config.url);
+    const client = config.client ?? (await createRedisClient(config.url));
     return new RedisStore(client, config.namespace);
   }
 
   async read<T = unknown>(key: string): Promise<T | null> {
-    try {
+    return wrapStoreError("read", key, async () => {
       const raw = await this.client.get(this.rk(key));
       if (raw === null) return null;
       return JSON.parse(raw) as T;
-    } catch (err) {
-      throw new StoreError(`read("${key}") failed: ${String(err)}`);
-    }
+    });
   }
 
-  async write<T = unknown>(key: string, value: T, options?: WriteOptions): Promise<void> {
-    try {
+  async write<T = unknown>(
+    key: string,
+    value: T,
+    options?: WriteOptions,
+  ): Promise<void> {
+    return wrapStoreError("write", key, async () => {
       const payload = JSON.stringify(value);
       if (options?.ttlMs != null) {
         const ex = Math.ceil(options.ttlMs / 1000);
@@ -65,32 +69,29 @@ export class RedisStore implements StoreProvider {
       } else {
         await this.client.set(this.rk(key), payload);
       }
-    } catch (err) {
-      throw new StoreError(`write("${key}") failed: ${String(err)}`);
-    }
+    });
   }
 
   async remove(key: string): Promise<void> {
-    try {
+    return wrapStoreError("remove", key, async () => {
       await this.client.del(this.rk(key));
-    } catch (err) {
-      throw new StoreError(`remove("${key}") failed: ${String(err)}`);
-    }
+    });
   }
 
   async list(prefix: string): Promise<string[]> {
-    try {
-      const pattern = `eta:store:${this.ns}:${prefix}*`;
-      const strip = `eta:store:${this.ns}:`;
+    return wrapStoreError("list", prefix, async () => {
+      const fullPrefix = storeKey(this.ns, prefix);
+      const pattern = `${fullPrefix}*`;
+      const strip = `${STORE_KEYS.STORE_PREFIX}${this.ns}:`;
       const keys: string[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const key of (this.client as any).scanIterator({ MATCH: pattern }) as AsyncIterable<string>) {
+      for await (const key of (this.client as any).scanIterator({
+        MATCH: pattern,
+      }) as AsyncIterable<string>) {
         keys.push(key.slice(strip.length));
       }
       return keys;
-    } catch (err) {
-      throw new StoreError(`list("${prefix}") failed: ${String(err)}`);
-    }
+    });
   }
 
   /** Release the Redis connection gracefully. */
@@ -103,7 +104,7 @@ export class RedisStore implements StoreProvider {
   // ---------------------------------------------------------------------------
 
   private rk(key: string): string {
-    return `eta:store:${this.ns}:${key}`;
+    return storeKey(this.ns, key);
   }
 }
 
@@ -141,7 +142,11 @@ export function createRedisStore(config: RedisStoreConfig): StoreProvider {
     async read<T = unknown>(key: string): Promise<T | null> {
       return (await getStore()).read<T>(key);
     },
-    async write<T = unknown>(key: string, value: T, options?: WriteOptions): Promise<void> {
+    async write<T = unknown>(
+      key: string,
+      value: T,
+      options?: WriteOptions,
+    ): Promise<void> {
       return (await getStore()).write<T>(key, value, options);
     },
     async remove(key: string): Promise<void> {

@@ -1,7 +1,7 @@
 import { createClient, type RedisClientType } from "redis";
 
 // ---------------------------------------------------------------------------
-// createRedisClient — shared Redis connection factory
+// createRedisClient — Redis connection factory for Redis-backed providers
 // ---------------------------------------------------------------------------
 
 /**
@@ -19,7 +19,9 @@ import { createClient, type RedisClientType } from "redis";
  * Connection-level errors are swallowed — individual operations will throw
  * `StoreError` / `MemoryError` with operation context.
  */
-export async function createRedisClient(url?: string): Promise<RedisClientType> {
+export async function createRedisClient(
+  url?: string,
+): Promise<RedisClientType> {
   const client = createClient({ url }) as RedisClientType;
   client.on("error", () => {
     // Swallow connection-level errors — operations will throw typed errors

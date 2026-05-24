@@ -1,6 +1,13 @@
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { StoreProvider, WriteOptions } from "../../../interfaces/store.js";
+import type { StoreProvider, WriteOptions } from "../../../contracts/store.js";
 import { StoreError } from "../../../errors.js";
 
 /**
@@ -54,7 +61,11 @@ export class FileStore implements StoreProvider {
     return entry.value;
   }
 
-  async write<T = unknown>(key: string, value: T, options?: WriteOptions): Promise<void> {
+  async write<T = unknown>(
+    key: string,
+    value: T,
+    options?: WriteOptions,
+  ): Promise<void> {
     const filePath = this.resolve(key);
     const _expiresAt =
       options?.ttlMs != null ? Date.now() + options.ttlMs : null;
@@ -84,6 +95,17 @@ export class FileStore implements StoreProvider {
   }
 
   async list(prefix: string): Promise<string[]> {
+    // FileStore resolves keys by splitting on "/" and treating segments as
+    // directory names. Colon-keyed prefixes (e.g. "eta:run:") do not map to
+    // directories and always return []. The kernel's direct read/write ops
+    // (session, suspend, tool-cache) never call list() — this limitation is safe.
+    if (prefix.includes(":")) {
+      console.warn(
+        `[FileStore] list("${prefix}") — colon-keyed prefixes do not map to ` +
+          `filesystem directories and will return []. ` +
+          `Use slash-separated prefixes (e.g. "eta/run/") for listing.`,
+      );
+    }
     const dir = join(this.baseDir, ...prefix.split("/"));
     let names: string[];
     try {

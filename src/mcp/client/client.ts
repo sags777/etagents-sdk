@@ -1,7 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import type { McpServerConfig, McpHandle, McpToolDef } from "../../types/mcp.js";
+import { z } from "zod";
+import type {
+  McpServerConfig,
+  McpHandle,
+  McpToolDef,
+} from "../../types/mcp.js";
 import { McpError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
@@ -36,7 +41,11 @@ export class McpClient {
   async connect(config: McpServerConfig): Promise<McpHandle> {
     const ref = Symbol(config.serverName);
     this.registry.set(ref, { config });
-    return { serverName: config.serverName, transport: config.transport, _ref: ref };
+    return {
+      serverName: config.serverName,
+      transport: config.transport,
+      _ref: ref,
+    };
   }
 
   /**
@@ -47,7 +56,9 @@ export class McpClient {
   private async ensureConnected(handle: McpHandle): Promise<Client> {
     const entry = this.registry.get(handle._ref);
     if (!entry) {
-      throw new McpError(`Unknown handle for server "${handle.serverName}" — was it registered with connect()?`);
+      throw new McpError(
+        `Unknown handle for server "${handle.serverName}" — was it registered with connect()?`,
+      );
     }
 
     if (entry.client) return entry.client;
@@ -97,7 +108,9 @@ export class McpClient {
       return result.tools.map((t) => ({
         name: `mcp__${handle.serverName}__${t.name}`,
         description: t.description ?? "",
-        inputSchema: t.inputSchema as Record<string, unknown>,
+        inputSchema: z
+          .record(z.string(), z.unknown())
+          .parse(t.inputSchema ?? {}),
       }));
     } catch (err) {
       if (err instanceof McpError) throw err;
@@ -130,7 +143,9 @@ export class McpClient {
       return texts.length > 0 ? texts.join("\n") : content;
     } catch (err) {
       if (err instanceof McpError) throw err;
-      throw new McpError(`callTool "${name}" failed: ${String(err)}`, { cause: err });
+      throw new McpError(`callTool "${name}" failed: ${String(err)}`, {
+        cause: err,
+      });
     }
   }
 

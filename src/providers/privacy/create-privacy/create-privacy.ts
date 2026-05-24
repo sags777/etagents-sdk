@@ -62,7 +62,9 @@ export function createPrivacy(
   );
 
   const selected = BUILTIN_RULES.filter((rule) => enabled.has(rule.name));
-  const rules = options.extraRules ? [...selected, ...options.extraRules] : selected;
+  const rules = options.extraRules
+    ? [...selected, ...options.extraRules]
+    : selected;
 
   return new RegexPrivacy(rules, options.passphrase);
 }

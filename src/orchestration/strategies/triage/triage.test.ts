@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { TriageRouter } from "./triage-router.js";
-import { MockModel } from "../../providers/model/mock/mock.js";
-import type { AgentDef } from "../../types/agent.js";
+import { TriageRouter } from "./triage.js";
+import { MockModel } from "../../../providers/model/mock/mock.js";
+import type { AgentDef } from "../../../types/agent.js";
 
 // ---------------------------------------------------------------------------
 // Minimal AgentDef stubs
@@ -123,7 +123,10 @@ describe("TriageRouter", () => {
       const model = MockModel.create([
         {
           kind: "text",
-          content: JSON.stringify({ selectedAgent: "SupportAgent", confidence: 0.7 }),
+          content: JSON.stringify({
+            selectedAgent: "SupportAgent",
+            confidence: 0.7,
+          }),
         },
       ]);
       const router = new TriageRouter({ model, agents });

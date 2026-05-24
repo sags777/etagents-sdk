@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { SessionEventStream, SSE_HEADERS } from "./event-stream.js";
-import { createAgent } from "../../agent/create-agent/create-agent.js";
+import { createAgent } from "../../agent/agent-builder.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
 
 // ---------------------------------------------------------------------------
 // Helper — collect all SSE frames from a ReadableStream
 // ---------------------------------------------------------------------------
 
-async function collectFrames(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function collectFrames(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
   const parts: string[] = [];
@@ -64,7 +66,11 @@ describe("SessionEventStream", () => {
   describe("stream()", () => {
     it("emits run.done event for a complete text run", async () => {
       const model = MockModel.create([{ kind: "text", content: "All done." }]);
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
@@ -75,18 +81,28 @@ describe("SessionEventStream", () => {
 
     it("emits run.status events for turn_start and turn_end", async () => {
       const model = MockModel.create([{ kind: "text", content: "ok" }]);
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
       const names = parseEventNames(raw);
 
-      expect(names.filter((n) => n === "run.status").length).toBeGreaterThanOrEqual(2);
+      expect(
+        names.filter((n) => n === "run.status").length,
+      ).toBeGreaterThanOrEqual(2);
     });
 
     it("each SSE frame has both event: and data: lines", async () => {
       const model = MockModel.create([{ kind: "text", content: "hi" }]);
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
@@ -101,7 +117,11 @@ describe("SessionEventStream", () => {
 
     it("data payloads are valid JSON", async () => {
       const model = MockModel.create([{ kind: "text", content: "done" }]);
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
@@ -114,8 +134,14 @@ describe("SessionEventStream", () => {
     });
 
     it("run.done data contains the run result", async () => {
-      const model = MockModel.create([{ kind: "text", content: "Final answer." }]);
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const model = MockModel.create([
+        { kind: "text", content: "Final answer." },
+      ]);
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
@@ -133,7 +159,11 @@ describe("SessionEventStream", () => {
       const model = MockModel.create([{ kind: "error", message: "API down" }]);
       // An error finish still completes the run (status=error or complete)
       // so we just verify the stream closes without hanging
-      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const agent = createAgent({
+        name: "a",
+        systemPrompt: "You help.",
+        model,
+      });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));

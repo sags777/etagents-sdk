@@ -25,7 +25,10 @@ export class OpenAIEmbedder {
   constructor(config: OpenAIEmbedderConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model ?? "text-embedding-3-small";
-    this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(
+      /\/$/,
+      "",
+    );
   }
 
   async embed(text: string): Promise<number[]> {
@@ -39,7 +42,9 @@ export class OpenAIEmbedder {
     });
 
     if (!res.ok) {
-      throw new Error(`OpenAI embeddings error: ${res.status} ${res.statusText}`);
+      throw new Error(
+        `OpenAI embeddings error: ${res.status} ${res.statusText}`,
+      );
     }
 
     const json = (await res.json()) as EmbeddingAPIResponse;

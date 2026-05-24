@@ -1,9 +1,9 @@
 import type { Message } from "../../types/message.js";
-import type { ModelProvider } from "../../interfaces/model.js";
+import type { ModelProvider } from "../../contracts/model.js";
 import type { InsightConfig, InsightResult } from "../../types/insight.js";
 import { DEFAULT_CONFIG } from "../../config.js";
 import { INSIGHT_PROMPTS } from "../../prompts.js";
-import { stripJsonFences } from "../../providers/model/_stream.js";
+import { stripJsonFences } from "../../providers/model/shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -41,8 +41,8 @@ function editDistance(a: string, b: string): number {
         grid[i][j] =
           1 +
           Math.min(
-            grid[i - 1][j],   // deletion
-            grid[i][j - 1],   // insertion
+            grid[i - 1][j], // deletion
+            grid[i][j - 1], // insertion
             grid[i - 1][j - 1], // substitution
           );
       }
@@ -156,7 +156,8 @@ export async function runInsight(
       ? transcript.slice(-MAX_TRANSCRIPT_CHARS)
       : transcript;
 
-  const systemPrompt = config.prompts?.extractFacts ?? INSIGHT_PROMPTS.extract.system;
+  const systemPrompt =
+    config.prompts?.extractFacts ?? INSIGHT_PROMPTS.extract.system;
 
   try {
     const response = await model.complete([

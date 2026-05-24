@@ -40,7 +40,8 @@ export const BUILTIN_RULES: PiiRule[] = [
   {
     name: "name",
     // Titles followed by one or two capitalised words — configurable by passing custom rules
-    pattern: /\b(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Prof\.?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g,
+    pattern:
+      /\b(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Prof\.?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/g,
     category: "name",
   },
 ];

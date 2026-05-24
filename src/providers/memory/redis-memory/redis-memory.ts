@@ -5,9 +5,11 @@ import type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
-} from "../../../interfaces/memory.js";
+} from "../../../contracts/memory.js";
 import { MemoryError } from "../../../errors.js";
-import { createRedisClient } from "../../_redis.js";
+import { createRedisClient } from "../../redis/client.js";
+import { memoryKey } from "../../../kernel/keys.js";
+import { STORE_KEYS } from "../../../constants.js";
 
 // ---------------------------------------------------------------------------
 // Local types
@@ -79,7 +81,10 @@ export class RedisMemory implements MemoryProvider {
   private readonly vectorDim: number;
   private indexReady = false;
 
-  private constructor(client: RedisClientType, config: Omit<RedisMemoryConfig, "url">) {
+  private constructor(
+    client: RedisClientType,
+    config: Omit<RedisMemoryConfig, "url">,
+  ) {
     this.client = client;
     this.embedder = config.embedder;
     this.ns = config.namespace;
@@ -89,7 +94,7 @@ export class RedisMemory implements MemoryProvider {
 
   /** Create, connect, and return a ready-to-use RedisMemory instance. */
   static async connect(config: RedisMemoryConfig): Promise<RedisMemory> {
-    const client = config.client ?? await createRedisClient(config.url);
+    const client = config.client ?? (await createRedisClient(config.url));
     const inst = new RedisMemory(client, config);
     await inst.ensureIndex();
     return inst;
@@ -108,13 +113,19 @@ export class RedisMemory implements MemoryProvider {
         metadata: JSON.stringify(entry.metadata ?? {}),
         vector: packFloat32(vec),
       });
-      await this.client.expire(this.entryKey(entry.scope, entry.id), this.ttlSecs);
+      await this.client.expire(
+        this.entryKey(entry.scope, entry.id),
+        this.ttlSecs,
+      );
     } catch {
       // Swallow per contract
     }
   }
 
-  async search(query: string, options?: MemorySearchOptions): Promise<MemoryMatch[]> {
+  async search(
+    query: string,
+    options?: MemorySearchOptions,
+  ): Promise<MemoryMatch[]> {
     try {
       const limit = options?.limit ?? 10;
       const minScore = options?.minScore ?? 0;
@@ -125,14 +136,17 @@ export class RedisMemory implements MemoryProvider {
 
       // Build TAG filter expression
       const parts: string[] = [];
-      if (scopeFilter?.agentId) parts.push(`@agentId:{${escapeTag(scopeFilter.agentId)}}`);
-      if (scopeFilter?.namespace) parts.push(`@scopeNs:{${escapeTag(scopeFilter.namespace)}}`);
-      if (scopeFilter?.userId) parts.push(`@userId:{${escapeTag(scopeFilter.userId)}}`);
+      if (scopeFilter?.agentId)
+        parts.push(`@agentId:{${escapeTag(scopeFilter.agentId)}}`);
+      if (scopeFilter?.namespace)
+        parts.push(`@scopeNs:{${escapeTag(scopeFilter.namespace)}}`);
+      if (scopeFilter?.userId)
+        parts.push(`@userId:{${escapeTag(scopeFilter.userId)}}`);
       const prefilter = parts.length > 0 ? `(${parts.join(" ")})` : "*";
 
       // FT.SEARCH with KNN (requires Redis Stack + DIALECT 2)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const res = await (this.client.ft as any).search(
+      const res = (await (this.client.ft as any).search(
         this.indexName(),
         `${prefilter}=>[KNN ${limit} @vector $vec AS __dist]`,
         {
@@ -142,7 +156,7 @@ export class RedisMemory implements MemoryProvider {
           DIALECT: 2,
           RETURN: ["id", "text", "metadata", "__dist"],
         },
-      ) as { documents: Array<{ value: Record<string, string> }> };
+      )) as { documents: Array<{ value: Record<string, string> }> };
 
       const matches: MemoryMatch[] = [];
       for (const doc of res.documents) {
@@ -155,7 +169,9 @@ export class RedisMemory implements MemoryProvider {
           id: v.id,
           text: v.text,
           score,
-          metadata: v.metadata ? (JSON.parse(v.metadata) as Record<string, unknown>) : undefined,
+          metadata: v.metadata
+            ? (JSON.parse(v.metadata) as Record<string, unknown>)
+            : undefined,
         });
       }
 
@@ -168,9 +184,11 @@ export class RedisMemory implements MemoryProvider {
   async delete(id: string): Promise<void> {
     try {
       // Scan across all scopes for this instance namespace
-      const pattern = `eta:mem:${this.ns}:*:*:${id}`;
+      const pattern = `${STORE_KEYS.MEMORY_PREFIX}${this.ns}:*:*:${id}`;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const key of (this.client as any).scanIterator({ MATCH: pattern }) as AsyncIterable<string>) {
+      for await (const key of (this.client as any).scanIterator({
+        MATCH: pattern,
+      }) as AsyncIterable<string>) {
         await this.client.del(key);
       }
     } catch (err) {
@@ -180,9 +198,11 @@ export class RedisMemory implements MemoryProvider {
 
   async clear(scope: MemoryScope): Promise<void> {
     try {
-      const prefix = `eta:mem:${this.ns}:${scope.agentId}:${scope.namespace}:*`;
+      const prefix = `${STORE_KEYS.MEMORY_PREFIX}${this.ns}:${scope.agentId}:${scope.namespace}:*`;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const key of (this.client as any).scanIterator({ MATCH: prefix }) as AsyncIterable<string>) {
+      for await (const key of (this.client as any).scanIterator({
+        MATCH: prefix,
+      }) as AsyncIterable<string>) {
         await this.client.del(key);
       }
     } catch (err) {
@@ -219,7 +239,7 @@ export class RedisMemory implements MemoryProvider {
             DISTANCE_METRIC: "COSINE",
           },
         },
-        { ON: "HASH", PREFIX: `eta:mem:${this.ns}:` },
+        { ON: "HASH", PREFIX: `${STORE_KEYS.MEMORY_PREFIX}${this.ns}:` },
       );
     } catch (err: unknown) {
       // "already exists" is expected on reconnect — all other errors are fatal
@@ -231,10 +251,10 @@ export class RedisMemory implements MemoryProvider {
   }
 
   private indexName(): string {
-    return `eta:mem:idx:${this.ns}`;
+    return `${STORE_KEYS.MEMORY_PREFIX}idx:${this.ns}`;
   }
 
   private entryKey(scope: MemoryScope, id: string): string {
-    return `eta:mem:${this.ns}:${scope.agentId}:${scope.namespace}:${id}`;
+    return memoryKey(this.ns, scope.agentId, scope.namespace, id);
   }
 }

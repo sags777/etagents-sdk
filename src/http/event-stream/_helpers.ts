@@ -85,9 +85,18 @@ export function createDeltaBuffer(
   let currentTurn = 0;
 
   function flush() {
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
     if (deltaBuffer.length === 0) return;
-    ctrl.enqueue(encodeMessage("run.text.delta", { kind: "text_delta", delta: deltaBuffer, turn: currentTurn }));
+    ctrl.enqueue(
+      encodeMessage("run.text.delta", {
+        kind: "text_delta",
+        delta: deltaBuffer,
+        turn: currentTurn,
+      }),
+    );
     deltaBuffer = "";
   }
 

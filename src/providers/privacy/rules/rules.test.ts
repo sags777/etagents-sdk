@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { BUILTIN_RULES } from "./rules.js";
 
-function matchAll(text: string, rule: (typeof BUILTIN_RULES)[number]): string[] {
+function matchAll(
+  text: string,
+  rule: (typeof BUILTIN_RULES)[number],
+): string[] {
   const re = new RegExp(rule.pattern.source, rule.pattern.flags);
   return Array.from(text.matchAll(re)).map((m) => m[0]);
 }
@@ -11,13 +14,15 @@ describe("BUILTIN_RULES", () => {
     const rule = BUILTIN_RULES.find((r) => r.name === "email")!;
 
     it("matches a plain email address", () => {
-      expect(matchAll("Contact us at hello@example.com please", rule)).toContain(
-        "hello@example.com",
-      );
+      expect(
+        matchAll("Contact us at hello@example.com please", rule),
+      ).toContain("hello@example.com");
     });
 
     it("matches email with plus addressing", () => {
-      expect(matchAll("user+tag@domain.org", rule)).toContain("user+tag@domain.org");
+      expect(matchAll("user+tag@domain.org", rule)).toContain(
+        "user+tag@domain.org",
+      );
     });
 
     it("does not match text without @", () => {
@@ -77,7 +82,9 @@ describe("BUILTIN_RULES", () => {
     const rule = BUILTIN_RULES.find((r) => r.name === "ipAddress")!;
 
     it("matches a valid IPv4 address", () => {
-      expect(matchAll("Server at 192.168.1.1 is down", rule)).toContain("192.168.1.1");
+      expect(matchAll("Server at 192.168.1.1 is down", rule)).toContain(
+        "192.168.1.1",
+      );
     });
 
     it("matches address with max octets (255.255.255.255)", () => {
@@ -93,7 +100,9 @@ describe("BUILTIN_RULES", () => {
     const rule = BUILTIN_RULES.find((r) => r.name === "name")!;
 
     it("matches Dr. followed by a name", () => {
-      expect(matchAll("Referred by Dr. Jane Smith", rule)).toContain("Dr. Jane Smith");
+      expect(matchAll("Referred by Dr. Jane Smith", rule)).toContain(
+        "Dr. Jane Smith",
+      );
     });
 
     it("matches Mr. with single last name", () => {
@@ -109,7 +118,10 @@ describe("BUILTIN_RULES", () => {
   describe("rule structure", () => {
     it("all rules have global flag on pattern", () => {
       for (const rule of BUILTIN_RULES) {
-        expect(rule.pattern.flags, `rule "${rule.name}" must have 'g' flag`).toContain("g");
+        expect(
+          rule.pattern.flags,
+          `rule "${rule.name}" must have 'g' flag`,
+        ).toContain("g");
       }
     });
 

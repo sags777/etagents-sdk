@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { RuleRouter } from "./rule-router.js";
-import { MockModel } from "../../providers/model/mock/mock.js";
-import type { AgentDef } from "../../types/agent.js";
+import { RuleRouter } from "./rule.js";
+import { MockModel } from "../../../providers/model/mock/mock.js";
+import type { AgentDef } from "../../../types/agent.js";
+import {
+  NO_OP_MEMORY,
+  NO_OP_STORE,
+  NO_OP_PRIVACY,
+} from "../../../providers/no-op/index.js";
 
 // ---------------------------------------------------------------------------
 // Minimal AgentDef factory for tests — no real providers, no API calls
@@ -10,37 +15,16 @@ import type { AgentDef } from "../../types/agent.js";
 function makeAgent(name: string, systemPrompt = `You are ${name}.`): AgentDef {
   const model = MockModel.create([]);
 
-  const noopMemory = {
-    async index() {},
-    async search() { return []; },
-    async delete() {},
-    async clear() {},
-  };
-
-  const noopStore = {
-    async read() { return null; },
-    async write() {},
-    async remove() {},
-    async list() { return []; },
-  };
-
-  const noopPrivacy = {
-    async mask(text: string) { return { masked: text, map: new Map<string, string>() }; },
-    async unmask(text: string) { return text; },
-    async encryptMap(m: Map<string, string>) { return { iv: "", ciphertext: JSON.stringify([...m]) }; },
-    async decryptMap(enc: { iv: string; ciphertext: string }) {
-      return new Map<string, string>(JSON.parse(enc.ciphertext) as [string, string][]);
-    },
-  };
-
   return {
+    agentId: `mock-agent-id-${name}`,
     name,
     systemPrompt,
+    systemPromptHash: "mock-hash",
     tools: [],
     model,
-    memory: noopMemory,
-    store: noopStore,
-    privacy: noopPrivacy,
+    memory: NO_OP_MEMORY,
+    store: NO_OP_STORE,
+    privacy: NO_OP_PRIVACY,
     insight: {},
     hitl: { mode: "none" },
     hooks: {},
@@ -66,7 +50,9 @@ describe("RuleRouter", () => {
       .fallback(generalAgent)
       .build();
 
-    const decision = await strategy.route("Please resend my invoice from last month.");
+    const decision = await strategy.route(
+      "Please resend my invoice from last month.",
+    );
     expect(decision.assignments[0].agentDef).toBe(billingAgent);
     expect(decision.confidence).toBe(1);
   });
@@ -113,20 +99,22 @@ describe("RuleRouter", () => {
       .when(/\binvoice\b/i, billingAgent)
       .build();
 
-    await expect(strategy.route("Completely unrelated message.")).rejects.toThrow(
-      /no rule matched/i,
-    );
+    await expect(
+      strategy.route("Completely unrelated message."),
+    ).rejects.toThrow(/no rule matched/i);
   });
 
   it("evaluates rules in insertion order — first match wins", async () => {
     const strategy = new RuleRouter()
-      .when(/order/i, billingAgent)   // matches "order" first
+      .when(/order/i, billingAgent) // matches "order" first
       .when(/order support/i, supportAgent)
       .fallback(generalAgent)
       .build();
 
     // Both patterns match, but the first one wins
-    const decision = await strategy.route("I have a question about my order support case.");
+    const decision = await strategy.route(
+      "I have a question about my order support case.",
+    );
     expect(decision.assignments[0].agentDef).toBe(billingAgent);
   });
 

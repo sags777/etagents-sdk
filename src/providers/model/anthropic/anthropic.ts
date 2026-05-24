@@ -5,8 +5,9 @@ import type {
   ModelResponse,
   StreamChunk,
   FinishReason,
-} from "../../../interfaces/model.js";
-import { zeroUsage, sseLines, contentToString, collectStream } from "../_stream.js";
+} from "../../../contracts/model.js";
+import { sseLines } from "../shared/sse.js";
+import { zeroUsage, contentToString, collectStream } from "../shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -32,11 +33,22 @@ type AnthropicDelta =
   | { type: "input_json_delta"; partial_json: string };
 
 type AnthropicEvent =
-  | { type: "message_start"; message: { usage: { input_tokens: number; output_tokens: number } } }
-  | { type: "content_block_start"; index: number; content_block: AnthropicContentBlock }
+  | {
+      type: "message_start";
+      message: { usage: { input_tokens: number; output_tokens: number } };
+    }
+  | {
+      type: "content_block_start";
+      index: number;
+      content_block: AnthropicContentBlock;
+    }
   | { type: "content_block_delta"; index: number; delta: AnthropicDelta }
   | { type: "content_block_stop"; index: number }
-  | { type: "message_delta"; delta: { stop_reason: string | null }; usage: { output_tokens: number } }
+  | {
+      type: "message_delta";
+      delta: { stop_reason: string | null };
+      usage: { output_tokens: number };
+    }
   | { type: "message_stop" }
   | { type: "ping" }
   | { type: "error"; error: { message: string } };
@@ -78,12 +90,21 @@ function toAnthropicMessages(messages: ModelMessage[]): unknown[] {
           },
         ],
       });
-    } else if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+    } else if (
+      msg.role === "assistant" &&
+      msg.toolCalls &&
+      msg.toolCalls.length > 0
+    ) {
       const content: unknown[] = [];
       const text = contentToString(msg.content);
       if (text) content.push({ type: "text", text });
       for (const tc of msg.toolCalls) {
-        content.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.args });
+        content.push({
+          type: "tool_use",
+          id: tc.id,
+          name: tc.name,
+          input: tc.args,
+        });
       }
       out.push({ role: "assistant", content });
     } else {
@@ -125,7 +146,10 @@ export class AnthropicModel implements ModelProvider {
   private constructor(config: AnthropicModelConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
-    this.baseUrl = (config.baseUrl ?? "https://api.anthropic.com").replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl ?? "https://api.anthropic.com").replace(
+      /\/$/,
+      "",
+    );
     this.anthropicVersion = config.anthropicVersion ?? "2023-06-01";
   }
 
@@ -153,7 +177,8 @@ export class AnthropicModel implements ModelProvider {
 
       const sys = extractSystem(messages);
       if (sys) body.system = sys;
-      if (options?.temperature !== undefined) body.temperature = options.temperature;
+      if (options?.temperature !== undefined)
+        body.temperature = options.temperature;
 
       if (options?.tools && options.tools.length > 0) {
         body.tools = options.tools.map((t) => ({
@@ -176,7 +201,12 @@ export class AnthropicModel implements ModelProvider {
 
       if (!resp.ok || !resp.body) {
         const errText = resp.body ? await resp.text() : resp.statusText;
-        yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: `Anthropic ${resp.status}: ${errText}` };
+        yield {
+          type: "finish",
+          finishReason: "error",
+          usage: zeroUsage(),
+          errorMsg: `Anthropic ${resp.status}: ${errText}`,
+        };
         return;
       }
 
@@ -200,8 +230,16 @@ export class AnthropicModel implements ModelProvider {
             const cb = event.content_block;
             blockTypes.set(event.index, cb.type);
             if (cb.type === "tool_use") {
-              toolAccums.set(event.index, { id: cb.id, name: cb.name, jsonBuf: "" });
-              yield { type: "tool_start", toolCallId: cb.id, toolName: cb.name };
+              toolAccums.set(event.index, {
+                id: cb.id,
+                name: cb.name,
+                jsonBuf: "",
+              });
+              yield {
+                type: "tool_start",
+                toolCallId: cb.id,
+                toolName: cb.name,
+              };
             }
             break;
           }
@@ -214,7 +252,11 @@ export class AnthropicModel implements ModelProvider {
               const acc = toolAccums.get(event.index);
               if (acc) {
                 acc.jsonBuf += d.partial_json;
-                yield { type: "tool_delta", toolCallId: acc.id, inputDelta: d.partial_json };
+                yield {
+                  type: "tool_delta",
+                  toolCallId: acc.id,
+                  inputDelta: d.partial_json,
+                };
               }
             }
             break;
@@ -225,7 +267,11 @@ export class AnthropicModel implements ModelProvider {
               const acc = toolAccums.get(event.index);
               if (acc) {
                 let input: Record<string, unknown> = {};
-                try { input = JSON.parse(acc.jsonBuf) as Record<string, unknown>; } catch { /* malformed */ }
+                try {
+                  input = JSON.parse(acc.jsonBuf) as Record<string, unknown>;
+                } catch {
+                  /* malformed */
+                }
                 yield { type: "tool_end", toolCallId: acc.id, input };
                 toolAccums.delete(event.index);
               }
@@ -239,11 +285,24 @@ export class AnthropicModel implements ModelProvider {
             break;
 
           case "message_stop":
-            yield { type: "finish", finishReason: toFinishReason(stopReason), usage: { prompt: inputTokens, completion: outputTokens, total: inputTokens + outputTokens } };
+            yield {
+              type: "finish",
+              finishReason: toFinishReason(stopReason),
+              usage: {
+                prompt: inputTokens,
+                completion: outputTokens,
+                total: inputTokens + outputTokens,
+              },
+            };
             return;
 
           case "error":
-            yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: event.error.message };
+            yield {
+              type: "finish",
+              finishReason: "error",
+              usage: zeroUsage(),
+              errorMsg: event.error.message,
+            };
             return;
         }
       }
@@ -251,15 +310,29 @@ export class AnthropicModel implements ModelProvider {
       // Stream ended without message_stop (e.g. aborted)
       yield {
         type: "finish",
-        finishReason: options?.signal?.aborted ? "error" : toFinishReason(stopReason),
-        usage: { prompt: inputTokens, completion: outputTokens, total: inputTokens + outputTokens },
+        finishReason: options?.signal?.aborted
+          ? "error"
+          : toFinishReason(stopReason),
+        usage: {
+          prompt: inputTokens,
+          completion: outputTokens,
+          total: inputTokens + outputTokens,
+        },
       };
     } catch (err) {
-      yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: String(err) };
+      yield {
+        type: "finish",
+        finishReason: "error",
+        usage: zeroUsage(),
+        errorMsg: String(err),
+      };
     }
   }
 
-  async complete(messages: ModelMessage[], options?: CompletionOptions): Promise<ModelResponse> {
+  async complete(
+    messages: ModelMessage[],
+    options?: CompletionOptions,
+  ): Promise<ModelResponse> {
     return collectStream(this.stream(messages, options));
   }
 }

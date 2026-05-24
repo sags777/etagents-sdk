@@ -114,7 +114,10 @@ export function buildTriageRouterSystemPrompt(
     })
     .join("\n");
 
-  return TRIAGE_ROUTER_SYSTEM_PROMPT_TEMPLATE.replace("{{catalogue}}", catalogue);
+  return TRIAGE_ROUTER_SYSTEM_PROMPT_TEMPLATE.replace(
+    "{{catalogue}}",
+    catalogue,
+  );
 }
 
 // ── Kernel prompts ─────────────────────────────────────────────────────────

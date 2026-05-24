@@ -6,8 +6,9 @@ import type {
   StreamChunk,
   FinishReason,
   TokenUsage,
-} from "../../../interfaces/model.js";
-import { collectStream, zeroUsage, sseLines, contentToString } from "../_stream.js";
+} from "../../../contracts/model.js";
+import { sseLines } from "../shared/sse.js";
+import { collectStream, zeroUsage, contentToString } from "../shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -121,7 +122,10 @@ export class OpenAIModel implements ModelProvider {
   constructor(config: OpenAIModelConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model;
-    const base = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const base = (config.baseUrl ?? "https://api.openai.com/v1").replace(
+      /\/$/,
+      "",
+    );
     this.chatUrl = `${base}/chat/completions`;
   }
 
@@ -151,12 +155,17 @@ export class OpenAIModel implements ModelProvider {
       };
 
       if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
-      if (options?.temperature !== undefined) body.temperature = options.temperature;
+      if (options?.temperature !== undefined)
+        body.temperature = options.temperature;
 
       if (options?.tools && options.tools.length > 0) {
         body.tools = options.tools.map((t) => ({
           type: "function",
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.inputSchema,
+          },
         }));
       }
 
@@ -169,7 +178,12 @@ export class OpenAIModel implements ModelProvider {
 
       if (!resp.ok || !resp.body) {
         const errText = resp.body ? await resp.text() : resp.statusText;
-        yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: `OpenAI ${resp.status}: ${errText}` };
+        yield {
+          type: "finish",
+          finishReason: "error",
+          usage: zeroUsage(),
+          errorMsg: `OpenAI ${resp.status}: ${errText}`,
+        };
         return;
       }
 
@@ -201,13 +215,25 @@ export class OpenAIModel implements ModelProvider {
           if (delta.tool_calls) {
             for (const tc of delta.tool_calls) {
               if (tc.id) {
-                callAccums.set(tc.index, { id: tc.id, name: tc.function?.name ?? "", argsBuf: tc.function?.arguments ?? "" });
-                yield { type: "tool_start", toolCallId: tc.id, toolName: tc.function?.name ?? "" };
+                callAccums.set(tc.index, {
+                  id: tc.id,
+                  name: tc.function?.name ?? "",
+                  argsBuf: tc.function?.arguments ?? "",
+                });
+                yield {
+                  type: "tool_start",
+                  toolCallId: tc.id,
+                  toolName: tc.function?.name ?? "",
+                };
               } else {
                 const acc = callAccums.get(tc.index);
                 if (acc && tc.function?.arguments) {
                   acc.argsBuf += tc.function.arguments;
-                  yield { type: "tool_delta", toolCallId: acc.id, inputDelta: tc.function.arguments };
+                  yield {
+                    type: "tool_delta",
+                    toolCallId: acc.id,
+                    inputDelta: tc.function.arguments,
+                  };
                 }
               }
             }
@@ -220,7 +246,11 @@ export class OpenAIModel implements ModelProvider {
             if (lastFinishReason === "tool_calls") {
               for (const acc of callAccums.values()) {
                 let input: Record<string, unknown> = {};
-                try { input = JSON.parse(acc.argsBuf) as Record<string, unknown>; } catch { /* malformed */ }
+                try {
+                  input = JSON.parse(acc.argsBuf) as Record<string, unknown>;
+                } catch {
+                  /* malformed */
+                }
                 yield { type: "tool_end", toolCallId: acc.id, input };
               }
               callAccums.clear();
@@ -231,15 +261,25 @@ export class OpenAIModel implements ModelProvider {
 
       yield {
         type: "finish",
-        finishReason: options?.signal?.aborted ? "error" : toFinishReason(sawFinishReason ? lastFinishReason : null),
+        finishReason: options?.signal?.aborted
+          ? "error"
+          : toFinishReason(sawFinishReason ? lastFinishReason : null),
         usage,
       };
     } catch (err) {
-      yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: String(err) };
+      yield {
+        type: "finish",
+        finishReason: "error",
+        usage: zeroUsage(),
+        errorMsg: String(err),
+      };
     }
   }
 
-  async complete(messages: ModelMessage[], options?: CompletionOptions): Promise<ModelResponse> {
+  async complete(
+    messages: ModelMessage[],
+    options?: CompletionOptions,
+  ): Promise<ModelResponse> {
     return collectStream(this.stream(messages, options));
   }
 }

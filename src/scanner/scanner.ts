@@ -71,7 +71,10 @@ export class ToolScanner {
     const mcpConfigs: ScannedMcp[] = [];
 
     walk(resolved, (file) => {
-      if (scanAgents && (file.endsWith(".agent.ts") || file.endsWith(".agent.js"))) {
+      if (
+        scanAgents &&
+        (file.endsWith(".agent.ts") || file.endsWith(".agent.js"))
+      ) {
         agents.push({ file });
         return;
       }
@@ -82,7 +85,11 @@ export class ToolScanner {
             serverName?: string;
             transport?: string;
           };
-          mcpConfigs.push({ file, serverName: raw.serverName, transport: raw.transport });
+          mcpConfigs.push({
+            file,
+            serverName: raw.serverName,
+            transport: raw.transport,
+          });
         } catch {
           mcpConfigs.push({ file });
         }

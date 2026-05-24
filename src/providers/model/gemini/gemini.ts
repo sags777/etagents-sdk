@@ -5,13 +5,9 @@ import type {
   ModelResponse,
   StreamChunk,
   FinishReason,
-} from "../../../interfaces/model.js";
-import {
-  collectStream,
-  zeroUsage,
-  sseLines,
-  contentToString,
-} from "../_stream.js";
+} from "../../../contracts/model.js";
+import { sseLines } from "../shared/sse.js";
+import { collectStream, zeroUsage, contentToString } from "../shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // Config

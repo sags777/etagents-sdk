@@ -3,10 +3,14 @@ import type {
   PrivacyMap,
   MaskResult,
   EncryptedMap,
-} from "../../../interfaces/privacy.js";
+} from "../../../contracts/privacy.js";
+import { z } from "zod";
 import { PrivacyError } from "../../../errors.js";
 import type { PiiRule } from "../types.js";
 import { BUILTIN_RULES } from "../rules/rules.js";
+
+/** Zod schema for the serialised privacy map entries array. */
+const privacyEntriesSchema = z.array(z.tuple([z.string(), z.string()]));
 
 /**
  * Matches any placeholder produced by RegexPrivacy.
@@ -63,7 +67,10 @@ export class RegexPrivacy implements PrivacyProvider {
 
     for (const rule of this.rules) {
       // Clone the regex so exec() state is per-call
-      const re = new RegExp(rule.pattern.source, ensureGlobal(rule.pattern.flags));
+      const re = new RegExp(
+        rule.pattern.source,
+        ensureGlobal(rule.pattern.flags),
+      );
       let m: RegExpExecArray | null;
       while ((m = re.exec(text)) !== null) {
         allMatches.push({
@@ -110,7 +117,10 @@ export class RegexPrivacy implements PrivacyProvider {
   async encryptMap(map: PrivacyMap): Promise<EncryptedMap> {
     const payload = JSON.stringify(Array.from(map.entries()));
     if (!this.passphrase) {
-      return { iv: "", ciphertext: Buffer.from(payload, "utf-8").toString("base64") };
+      return {
+        iv: "",
+        ciphertext: Buffer.from(payload, "utf-8").toString("base64"),
+      };
     }
     try {
       const key = await this.deriveKey(this.passphrase);
@@ -132,9 +142,11 @@ export class RegexPrivacy implements PrivacyProvider {
 
   async decryptMap(encrypted: EncryptedMap): Promise<PrivacyMap> {
     if (!this.passphrase || encrypted.iv === "") {
-      const entries = JSON.parse(
-        Buffer.from(encrypted.ciphertext, "base64").toString("utf-8"),
-      ) as [string, string][];
+      const entries = privacyEntriesSchema.parse(
+        JSON.parse(
+          Buffer.from(encrypted.ciphertext, "base64").toString("utf-8"),
+        ),
+      );
       return new Map(entries);
     }
     try {
@@ -146,7 +158,9 @@ export class RegexPrivacy implements PrivacyProvider {
         key,
         data,
       );
-      const entries = JSON.parse(new TextDecoder().decode(plain)) as [string, string][];
+      const entries = privacyEntriesSchema.parse(
+        JSON.parse(new TextDecoder().decode(plain)),
+      );
       return new Map(entries);
     } catch (err) {
       throw new PrivacyError(`decryptMap failed: ${String(err)}`);

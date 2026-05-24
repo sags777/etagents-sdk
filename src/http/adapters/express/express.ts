@@ -1,6 +1,9 @@
-import { SessionEventStream, SSE_HEADERS } from "../event-stream/event-stream.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig } from "../../types/run.js";
+import {
+  SessionEventStream,
+  SSE_HEADERS,
+} from "../../event-stream/event-stream.js";
+import type { AgentDef } from "../../../types/agent.js";
+import type { RunConfig } from "../../../types/run.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Express type surface
@@ -20,7 +23,10 @@ export interface ExpressResponse {
 }
 
 /** Express middleware / route handler type. */
-export type ExpressHandler = (req: ExpressRequest, res: ExpressResponse) => void;
+export type ExpressHandler = (
+  req: ExpressRequest,
+  res: ExpressResponse,
+) => void;
 
 // ---------------------------------------------------------------------------
 // ExpressHandlerOptions — mirrors StreamOptions with response-level controls

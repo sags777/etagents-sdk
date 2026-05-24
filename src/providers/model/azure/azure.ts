@@ -35,7 +35,10 @@ export class AzureModel extends OpenAIModel {
     const chatUrl =
       `${config.endpoint.replace(/\/$/, "")}/openai/deployments/${config.deployment}` +
       `/chat/completions?api-version=${config.apiVersion}`;
-    return new AzureModel({ apiKey: config.apiKey, model: config.deployment }, chatUrl);
+    return new AzureModel(
+      { apiKey: config.apiKey, model: config.deployment },
+      chatUrl,
+    );
   }
 
   protected override buildHeaders(): Record<string, string> {

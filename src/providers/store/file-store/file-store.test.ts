@@ -91,3 +91,51 @@ describe("FileStore", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Key schema edge cases — 0C characterization
+// ---------------------------------------------------------------------------
+
+describe("FileStore — colon-key limitation (0C)", () => {
+  it("write with a colon-prefixed key succeeds (stored as a flat file)", async () => {
+    // Colon chars in the key do NOT split into directories — the whole segment
+    // is treated as a flat filename.  write() should not throw.
+    await expect(
+      store.write("eta:run:abc", { data: 1 }),
+    ).resolves.toBeUndefined();
+    const val = await store.read<{ data: number }>("eta:run:abc");
+    expect(val?.data).toBe(1);
+  });
+
+  it("list() with a colon-prefixed key returns empty — filesystem limitation", async () => {
+    // FileStore.list() splits on '/' to resolve a directory, so a colon-keyed
+    // prefix like "eta:run:" is treated as a single path segment.  There is no
+    // directory named "eta:run:" so readdir returns ENOENT → empty array.
+    await store.write("eta:run:abc", { data: 1 });
+    await store.write("eta:run:xyz", { data: 2 });
+
+    const keys = await store.list("eta:run:");
+    // Documents current behaviour: colon-prefix list returns empty
+    expect(keys).toHaveLength(0);
+  });
+
+  it("list() with a slash-separated prefix returns keys correctly", async () => {
+    // Slash-separated keys create real directory hierarchies that list() can traverse.
+    await store.write("eta/run/abc", { data: 1 });
+    await store.write("eta/run/xyz", { data: 2 });
+
+    const keys = await store.list("eta/run");
+    expect(keys.sort()).toEqual(["eta/run/abc", "eta/run/xyz"]);
+  });
+
+  it("kernel colon-prefixed store ops (write/read/remove) are unaffected by the list limitation", async () => {
+    // The kernel only calls list() when scanning for keys — internal session
+    // and suspend ops only use write/read/remove which work fine with colon keys.
+    await store.write("eta:suspend:chk-1", { checkpoint: true });
+    const val = await store.read<{ checkpoint: boolean }>("eta:suspend:chk-1");
+    expect(val?.checkpoint).toBe(true);
+
+    await store.remove("eta:suspend:chk-1");
+    expect(await store.read("eta:suspend:chk-1")).toBeNull();
+  });
+});

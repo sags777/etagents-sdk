@@ -1,7 +1,10 @@
-import { SessionEventStream, SSE_HEADERS } from "../event-stream/event-stream.js";
-import type { StreamOptions } from "../stream-options.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig } from "../../types/run.js";
+import {
+  SessionEventStream,
+  SSE_HEADERS,
+} from "../../event-stream/event-stream.js";
+import type { StreamOptions } from "../../stream-options.js";
+import type { AgentDef } from "../../../types/agent.js";
+import type { RunConfig } from "../../../types/run.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Next.js App Router type surface
@@ -93,6 +96,9 @@ export function toNextResponse(
   options?: NextResponseOptions,
 ): Response {
   const body = stream.stream(input, options);
-  const headers: Record<string, string> = { ...SSE_HEADERS, ...options?.headers };
+  const headers: Record<string, string> = {
+    ...SSE_HEADERS,
+    ...options?.headers,
+  };
   return new Response(body, { headers, status: options?.status ?? 200 });
 }

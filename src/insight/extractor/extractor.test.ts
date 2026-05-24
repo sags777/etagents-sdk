@@ -8,10 +8,19 @@ import type { Message } from "../../types/message.js";
 // ---------------------------------------------------------------------------
 
 const conversation: Message[] = [
-  { role: "user", content: "We're planning to migrate to a microservices architecture." },
+  {
+    role: "user",
+    content: "We're planning to migrate to a microservices architecture.",
+  },
   { role: "assistant", content: "Got it. What is your current setup?" },
-  { role: "user", content: "A monolithic Node.js app. We chose Kubernetes for orchestration." },
-  { role: "assistant", content: "Understood — Kubernetes is a solid choice for this migration." },
+  {
+    role: "user",
+    content: "A monolithic Node.js app. We chose Kubernetes for orchestration.",
+  },
+  {
+    role: "assistant",
+    content: "Understood — Kubernetes is a solid choice for this migration.",
+  },
 ];
 
 function makeModel(payload: object): MockModel {
@@ -27,7 +36,8 @@ describe("runInsight", () => {
     const model = makeModel({
       facts: ["The team chose Kubernetes for container orchestration."],
       userFacts: ["The user is migrating a monolithic Node.js app."],
-      summary: "The team decided to adopt Kubernetes as part of a microservices migration.",
+      summary:
+        "The team decided to adopt Kubernetes as part of a microservices migration.",
       topics: ["kubernetes", "microservices", "migration"],
     });
 
@@ -42,7 +52,8 @@ describe("runInsight", () => {
   });
 
   it("deduplicates identical facts — same string appears only once", async () => {
-    const repeated = "Kubernetes was selected as the container orchestration platform.";
+    const repeated =
+      "Kubernetes was selected as the container orchestration platform.";
     const model = makeModel({
       facts: [repeated, repeated, repeated],
       userFacts: [],
@@ -58,8 +69,10 @@ describe("runInsight", () => {
 
   it("deduplicates near-duplicate facts via edit distance", async () => {
     // Two facts that differ by only a few characters should collapse to one
-    const a = "The team agreed to deploy on Kubernetes for orchestration purposes.";
-    const b = "The team agreed to deploy on Kubernetes for orchestration purpose.";
+    const a =
+      "The team agreed to deploy on Kubernetes for orchestration purposes.";
+    const b =
+      "The team agreed to deploy on Kubernetes for orchestration purpose.";
     const model = makeModel({
       facts: [a, b],
       userFacts: [],
@@ -92,7 +105,9 @@ describe("runInsight", () => {
   });
 
   it("returns empty arrays when the model errors — fail-open", async () => {
-    const model = MockModel.create([{ kind: "error", message: "upstream model failed" }]);
+    const model = MockModel.create([
+      { kind: "error", message: "upstream model failed" },
+    ]);
     const result = await runInsight(conversation, model, {});
 
     expect(result.facts).toEqual([]);

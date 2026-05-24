@@ -7,12 +7,14 @@
  */
 
 import type { Command } from "commander";
-import type { StoreProvider } from "../../interfaces/store.js";
+import type { StoreProvider } from "../../contracts/store.js";
 import { FileStore } from "../../providers/store/index.js";
 
 const SESSION_PREFIX = "eta:run:";
 
-async function resolveStore(spec: string): Promise<StoreProvider & { quit?: () => Promise<void> }> {
+async function resolveStore(
+  spec: string,
+): Promise<StoreProvider & { quit?: () => Promise<void> }> {
   if (spec.startsWith("redis:")) {
     const url = spec.slice("redis:".length);
     const { RedisStore } = await import("../../providers/store/index.js");
@@ -26,27 +28,35 @@ export function register(program: Command): void {
   program
     .command("session <subcommand>")
     .description("Manage persisted sessions: list | get | delete")
-    .option("--store <spec>", "Storage backend: file:<dir> or redis:<url>", "file:.sessions")
+    .option(
+      "--store <spec>",
+      "Storage backend: file:<dir> or redis:<url>",
+      "file:.sessions",
+    )
     .option("--session-id <id>", "Target session (run) ID")
     .option("--json", "Machine-readable JSON output")
-    .action(async (
-      subcommand: string,
-      opts: { store?: string; sessionId?: string; json?: boolean },
-    ) => {
-      const spec = opts.store ?? "file:.sessions";
+    .action(
+      async (
+        subcommand: string,
+        opts: { store?: string; sessionId?: string; json?: boolean },
+      ) => {
+        const spec = opts.store ?? "file:.sessions";
 
-      switch (subcommand) {
-        case "list":
-          return sessionList(spec, opts.json ?? false);
-        case "get":
-          return sessionGet(spec, opts.sessionId, opts.json ?? false);
-        case "delete":
-          return sessionDelete(spec, opts.sessionId);
-        default:
-          console.error(`Unknown subcommand: "${subcommand}". Valid: list, get, delete`);
-          process.exit(1);
-      }
-    });
+        switch (subcommand) {
+          case "list":
+            return sessionList(spec, opts.json ?? false);
+          case "get":
+            return sessionGet(spec, opts.sessionId, opts.json ?? false);
+          case "delete":
+            return sessionDelete(spec, opts.sessionId);
+          default:
+            console.error(
+              `Unknown subcommand: "${subcommand}". Valid: list, get, delete`,
+            );
+            process.exit(1);
+        }
+      },
+    );
 }
 
 async function sessionList(spec: string, json: boolean): Promise<void> {
@@ -64,14 +74,25 @@ async function sessionList(spec: string, json: boolean): Promise<void> {
       return;
     }
 
-    const files = fs.readdirSync(resolvedDir).filter((f: string) => f.endsWith(".json"));
-    const sessions: Array<{ runId: string; updatedAt: string; turns: number }> = [];
+    const files = fs
+      .readdirSync(resolvedDir)
+      .filter((f: string) => f.endsWith(".json"));
+    const sessions: Array<{ runId: string; updatedAt: string; turns: number }> =
+      [];
 
     for (const file of files) {
       try {
         const raw = fs.readFileSync(path.join(resolvedDir, file), "utf-8");
-        const parsed = JSON.parse(raw) as { value?: { runId?: string; updatedAt?: string; messages?: unknown[] } };
-        const snap = parsed.value ?? parsed as { runId?: string; updatedAt?: string; messages?: unknown[] };
+        const parsed = JSON.parse(raw) as {
+          value?: { runId?: string; updatedAt?: string; messages?: unknown[] };
+        };
+        const snap =
+          parsed.value ??
+          (parsed as {
+            runId?: string;
+            updatedAt?: string;
+            messages?: unknown[];
+          });
         if (snap.runId) {
           sessions.push({
             runId: snap.runId,
@@ -101,7 +122,9 @@ async function sessionList(spec: string, json: boolean): Promise<void> {
   }
 
   // Redis — use store.list if available
-  const listable = store as StoreProvider & { list?: (prefix?: string) => Promise<string[]> };
+  const listable = store as StoreProvider & {
+    list?: (prefix?: string) => Promise<string[]>;
+  };
   if (typeof listable.list === "function") {
     const keys = await listable.list(SESSION_PREFIX);
     if (json) {
@@ -117,7 +140,11 @@ async function sessionList(spec: string, json: boolean): Promise<void> {
   await store.quit?.();
 }
 
-async function sessionGet(spec: string, sessionId: string | undefined, json: boolean): Promise<void> {
+async function sessionGet(
+  spec: string,
+  sessionId: string | undefined,
+  json: boolean,
+): Promise<void> {
   if (!sessionId) {
     console.error("Error: --session-id is required.");
     process.exit(1);
@@ -134,7 +161,11 @@ async function sessionGet(spec: string, sessionId: string | undefined, json: boo
   if (json) {
     console.log(JSON.stringify(snap, null, 2));
   } else {
-    const s = snap as { runId?: string; updatedAt?: string; messages?: unknown[] };
+    const s = snap as {
+      runId?: string;
+      updatedAt?: string;
+      messages?: unknown[];
+    };
     console.log(`\nSession: ${s.runId}`);
     console.log(`Updated: ${s.updatedAt}`);
     console.log(`Messages: ${s.messages?.length ?? 0}`);
@@ -142,7 +173,10 @@ async function sessionGet(spec: string, sessionId: string | undefined, json: boo
   }
 }
 
-async function sessionDelete(spec: string, sessionId: string | undefined): Promise<void> {
+async function sessionDelete(
+  spec: string,
+  sessionId: string | undefined,
+): Promise<void> {
   if (!sessionId) {
     console.error("Error: --session-id is required.");
     process.exit(1);

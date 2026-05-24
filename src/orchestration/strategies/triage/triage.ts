@@ -1,8 +1,23 @@
-import type { AgentDef } from "../../types/agent.js";
-import type { ModelProvider } from "../../interfaces/model.js";
-import type { RoutingDecision, RoutingStrategy, RoutingContext } from "../rule-router/rule-router.js";
-import { buildTriageRouterSystemPrompt } from "../../prompts.js";
-import { stripJsonFences } from "../../providers/model/_stream.js";
+import { z } from "zod";
+import type { AgentDef } from "../../../types/agent.js";
+import type { ModelProvider } from "../../../contracts/model.js";
+import type {
+  RoutingDecision,
+  RoutingStrategy,
+  RoutingContext,
+} from "../rule/rule.js";
+import { buildTriageRouterSystemPrompt } from "../../../prompts.js";
+import { stripJsonFences } from "../../../providers/model/shared/stream.js";
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+const triageResponseSchema = z.object({
+  selectedAgent: z.string().optional(),
+  confidence: z.number().optional(),
+  reason: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // TriageRouter
@@ -35,13 +50,17 @@ export class TriageRouter implements RoutingStrategy {
   private readonly systemPrompt: string;
 
   constructor({ model, agents }: TriageRouterOptions) {
-    if (agents.length === 0) throw new Error("TriageRouter: agents array must not be empty");
+    if (agents.length === 0)
+      throw new Error("TriageRouter: agents array must not be empty");
     this.model = model;
     this.agents = agents;
     this.systemPrompt = buildTriageRouterSystemPrompt(agents);
   }
 
-  async route(message: string, _context?: RoutingContext): Promise<RoutingDecision> {
+  async route(
+    message: string,
+    _context?: RoutingContext,
+  ): Promise<RoutingDecision> {
     const agentIndex = new Map(this.agents.map((a) => [a.name, a]));
 
     try {
@@ -51,7 +70,9 @@ export class TriageRouter implements RoutingStrategy {
       ]);
 
       const rawContent =
-        typeof response.message.content === "string" ? response.message.content : "";
+        typeof response.message.content === "string"
+          ? response.message.content
+          : "";
 
       const raw = stripJsonFences(rawContent);
 
@@ -60,23 +81,37 @@ export class TriageRouter implements RoutingStrategy {
           assignments: [{ agentDef: this.agents[0], parallel: false }],
           confidence: 0,
           reason: `Triage model returned empty response; falling back to ${this.agents[0].name}.`,
+          strategy: "triage",
         };
       }
 
-      const parsed = JSON.parse(raw) as {
-        selectedAgent?: unknown;
-        confidence?: unknown;
-        reason?: unknown;
-      };
+      const parsed = triageResponseSchema.safeParse(JSON.parse(raw));
+
+      if (!parsed.success) {
+        return {
+          assignments: [{ agentDef: this.agents[0], parallel: false }],
+          confidence: 0,
+          reason: `Triage model returned unparseable JSON; falling back to ${this.agents[0].name}.`,
+          strategy: "triage",
+        };
+      }
+
+      const {
+        selectedAgent,
+        confidence: rawConfidence,
+        reason: rawReason,
+      } = parsed.data;
 
       const name =
-        typeof parsed.selectedAgent === "string" ? parsed.selectedAgent.trim() : "";
+        typeof selectedAgent === "string" ? selectedAgent.trim() : "";
       const confidence =
-        typeof parsed.confidence === "number"
-          ? Math.max(0, Math.min(1, parsed.confidence))
+        typeof rawConfidence === "number"
+          ? Math.max(0, Math.min(1, rawConfidence))
           : 0.5;
       const reason =
-        typeof parsed.reason === "string" ? parsed.reason : "Agent selected by triage model.";
+        typeof rawReason === "string"
+          ? rawReason
+          : "Agent selected by triage model.";
 
       const matched = agentIndex.get(name);
       if (!matched) {
@@ -85,6 +120,7 @@ export class TriageRouter implements RoutingStrategy {
           assignments: [{ agentDef: this.agents[0], parallel: false }],
           confidence: 0,
           reason: `Triage model returned unknown agent "${name}"; falling back to ${this.agents[0].name}.`,
+          strategy: "triage",
         };
       }
 
@@ -92,6 +128,7 @@ export class TriageRouter implements RoutingStrategy {
         assignments: [{ agentDef: matched, parallel: false }],
         confidence,
         reason,
+        strategy: "triage",
       };
     } catch (err) {
       // Fail-open: parse or network error → fall back to first agent
@@ -99,6 +136,7 @@ export class TriageRouter implements RoutingStrategy {
         assignments: [{ agentDef: this.agents[0], parallel: false }],
         confidence: 0,
         reason: `Triage model call failed (${err instanceof Error ? err.message : String(err)}); falling back to ${this.agents[0].name}.`,
+        strategy: "triage",
       };
     }
   }

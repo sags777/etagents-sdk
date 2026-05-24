@@ -4,8 +4,8 @@ import type {
   CompletionOptions,
   ModelResponse,
   StreamChunk,
-} from "../../../interfaces/model.js";
-import { zeroUsage, collectStream } from "../_stream.js";
+} from "../../../contracts/model.js";
+import { zeroUsage, collectStream } from "../shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -33,7 +33,10 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     const timer = setTimeout(resolve, ms);
     signal?.addEventListener(
       "abort",
-      () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); },
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
       { once: true },
     );
   });
@@ -97,20 +100,36 @@ export class MockModel implements ModelProvider {
       case "tools":
         for (const call of resp.calls) {
           if (options?.signal?.aborted) break;
-          yield { type: "tool_start", toolCallId: call.id, toolName: call.name };
-          yield { type: "tool_delta", toolCallId: call.id, inputDelta: JSON.stringify(call.input) };
+          yield {
+            type: "tool_start",
+            toolCallId: call.id,
+            toolName: call.name,
+          };
+          yield {
+            type: "tool_delta",
+            toolCallId: call.id,
+            inputDelta: JSON.stringify(call.input),
+          };
           yield { type: "tool_end", toolCallId: call.id, input: call.input };
         }
         yield { type: "finish", finishReason: "tool_use", usage: zeroUsage() };
         break;
 
       case "error":
-        yield { type: "finish", finishReason: "error", usage: zeroUsage(), errorMsg: resp.message };
+        yield {
+          type: "finish",
+          finishReason: "error",
+          usage: zeroUsage(),
+          errorMsg: resp.message,
+        };
         break;
     }
   }
 
-  async complete(messages: ModelMessage[], options?: CompletionOptions): Promise<ModelResponse> {
+  async complete(
+    messages: ModelMessage[],
+    options?: CompletionOptions,
+  ): Promise<ModelResponse> {
     return collectStream(this.stream(messages, options));
   }
 }

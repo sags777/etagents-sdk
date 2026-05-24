@@ -10,7 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import * as ts from "typescript";
 import type { AgentDef } from "../../types/agent.js";
-import type { ModelProvider } from "../../interfaces/model.js";
+import type { ModelProvider } from "../../contracts/model.js";
 import { AnthropicModel } from "../../providers/model/anthropic/anthropic.js";
 import { OpenAIModel } from "../../providers/model/openai/openai.js";
 import { GeminiModel } from "../../providers/model/gemini/gemini.js";
@@ -26,12 +26,19 @@ export async function loadAgentFile(agentFile: string): Promise<AgentDef> {
   try {
     mod = await importAgentModule(resolved);
   } catch (err) {
-    console.error(`Error loading agent file "${agentFile}": ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `Error loading agent file "${agentFile}": ${err instanceof Error ? err.message : String(err)}`,
+    );
     process.exit(1);
   }
 
   const agent = mod.default;
-  if (!agent || typeof agent !== "object" || !("name" in agent) || !("systemPrompt" in agent)) {
+  if (
+    !agent ||
+    typeof agent !== "object" ||
+    !("name" in agent) ||
+    !("systemPrompt" in agent)
+  ) {
     console.error(
       `Error: "${agentFile}" must default-export an AgentDef created via createAgent().`,
     );
@@ -41,9 +48,13 @@ export async function loadAgentFile(agentFile: string): Promise<AgentDef> {
   return agent as AgentDef;
 }
 
-async function importAgentModule(resolved: string): Promise<{ default?: unknown }> {
+async function importAgentModule(
+  resolved: string,
+): Promise<{ default?: unknown }> {
   try {
-    return (await import(pathToFileURL(resolved).href)) as { default?: unknown };
+    return (await import(pathToFileURL(resolved).href)) as {
+      default?: unknown;
+    };
   } catch (err) {
     if (!isTypescriptAgentFile(resolved)) throw err;
     return transpileAndImport(resolved);
@@ -54,7 +65,9 @@ function isTypescriptAgentFile(resolved: string): boolean {
   return /\.(cts|mts|ts|tsx)$/i.test(resolved);
 }
 
-async function transpileAndImport(resolved: string): Promise<{ default?: unknown }> {
+async function transpileAndImport(
+  resolved: string,
+): Promise<{ default?: unknown }> {
   const source = await fs.readFile(resolved, "utf-8");
   const transpiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -69,12 +82,16 @@ async function transpileAndImport(resolved: string): Promise<{ default?: unknown
   });
 
   if (transpiled.diagnostics && transpiled.diagnostics.length > 0) {
-    const message = ts.formatDiagnosticsWithColorAndContext(transpiled.diagnostics, {
-      getCurrentDirectory: () => path.dirname(resolved),
-      getCanonicalFileName: (fileName) => fileName,
-      getNewLine: () => "\n",
-    }).trim();
-    throw new Error(message || `Failed to transpile TypeScript agent file: ${resolved}`);
+    const message = ts
+      .formatDiagnosticsWithColorAndContext(transpiled.diagnostics, {
+        getCurrentDirectory: () => path.dirname(resolved),
+        getCanonicalFileName: (fileName) => fileName,
+        getNewLine: () => "\n",
+      })
+      .trim();
+    throw new Error(
+      message || `Failed to transpile TypeScript agent file: ${resolved}`,
+    );
   }
 
   const tempFile = path.join(
@@ -85,7 +102,9 @@ async function transpileAndImport(resolved: string): Promise<{ default?: unknown
   await fs.writeFile(tempFile, transpiled.outputText, "utf-8");
 
   try {
-    return (await import(`${pathToFileURL(tempFile).href}?t=${Date.now()}`)) as { default?: unknown };
+    return (await import(
+      `${pathToFileURL(tempFile).href}?t=${Date.now()}`
+    )) as { default?: unknown };
   } finally {
     await fs.unlink(tempFile).catch(() => undefined);
   }
@@ -101,7 +120,11 @@ export function resolveModel(modelId: string, apiKey?: string): ModelProvider {
     const key = apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
     return AnthropicModel.create({ apiKey: key, model: modelId });
   }
-  if (modelId.startsWith("gpt-") || modelId.startsWith("o1") || modelId.startsWith("o3")) {
+  if (
+    modelId.startsWith("gpt-") ||
+    modelId.startsWith("o1") ||
+    modelId.startsWith("o3")
+  ) {
     const key = apiKey ?? process.env.OPENAI_API_KEY ?? "";
     return new OpenAIModel({ apiKey: key, model: modelId });
   }
@@ -119,6 +142,10 @@ export function resolveModel(modelId: string, apiKey?: string): ModelProvider {
  * Use when the CLI --model flag should take precedence over the
  * model baked into the agent file.
  */
-export function withModel(agent: AgentDef, modelId: string, apiKey?: string): AgentDef {
+export function withModel(
+  agent: AgentDef,
+  modelId: string,
+  apiKey?: string,
+): AgentDef {
   return Object.freeze({ ...agent, model: resolveModel(modelId, apiKey) });
 }

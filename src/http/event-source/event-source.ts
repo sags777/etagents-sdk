@@ -80,7 +80,9 @@ interface QueuedItem {
 
 class EventQueue {
   private readonly items: QueuedItem[] = [];
-  private readonly resolvers: Array<(item: IteratorResult<QueuedItem>) => void> = [];
+  private readonly resolvers: Array<
+    (item: IteratorResult<QueuedItem>) => void
+  > = [];
   private done = false;
 
   push(item: QueuedItem): void {
@@ -105,7 +107,10 @@ class EventQueue {
       return Promise.resolve({ value: item, done: false });
     }
     if (this.done) {
-      return Promise.resolve({ value: undefined as unknown as QueuedItem, done: true });
+      return Promise.resolve({
+        value: undefined as unknown as QueuedItem,
+        done: true,
+      });
     }
     return new Promise((resolve) => {
       this.resolvers.push(resolve);
@@ -170,7 +175,7 @@ function createSseParser(dispatch: DispatchFn): (line: string) => void {
  * ```
  */
 export class SessionEventSource {
-  private _readyState: ReadyState = "connecting";
+  private readyStateValue: ReadyState = "connecting";
   private readonly handlers = new Map<string, SessionEventHandler[]>();
   private readonly queue = new EventQueue();
   private readonly ctrl: AbortController;
@@ -186,10 +191,12 @@ export class SessionEventSource {
 
     // Chain caller's signal to our controller
     if (options.signal) {
-      options.signal.addEventListener("abort", () => this.ctrl.abort(), { once: true });
+      options.signal.addEventListener("abort", () => this.ctrl.abort(), {
+        once: true,
+      });
     }
 
-    this.result = this._connect(url, options);
+    this.result = this.connect(url, options);
   }
 
   // ---------------------------------------------------------------------------
@@ -198,14 +205,17 @@ export class SessionEventSource {
 
   /** Current connection state. */
   get readyState(): ReadyState {
-    return this._readyState;
+    return this.readyStateValue;
   }
 
   /**
    * Register a typed event handler.
    * Returns `this` for chaining.
    */
-  on<K extends keyof EtaEventMap>(event: K, handler: SessionEventHandler<EtaEventMap[K]>): this {
+  on<K extends keyof EtaEventMap>(
+    event: K,
+    handler: SessionEventHandler<EtaEventMap[K]>,
+  ): this {
     const list = this.handlers.get(event as string) ?? [];
     list.push(handler as SessionEventHandler);
     this.handlers.set(event as string, list);
@@ -220,7 +230,10 @@ export class SessionEventSource {
   /** Async iteration over all received events. */
   [Symbol.asyncIterator](): AsyncIterator<{ event: string; data: unknown }> {
     return {
-      next: () => this.queue.next() as Promise<IteratorResult<{ event: string; data: unknown }>>,
+      next: () =>
+        this.queue.next() as Promise<
+          IteratorResult<{ event: string; data: unknown }>
+        >,
     };
   }
 
@@ -228,7 +241,10 @@ export class SessionEventSource {
   // Connection + stream loop
   // ---------------------------------------------------------------------------
 
-  private async _connect(url: string, options: SessionEventSourceOptions): Promise<CompleteEvent> {
+  private async connect(
+    url: string,
+    options: SessionEventSourceOptions,
+  ): Promise<CompleteEvent> {
     const method = options.method ?? (options.body ? "POST" : "GET");
 
     const headers: Record<string, string> = {
@@ -246,21 +262,23 @@ export class SessionEventSource {
         signal: this.ctrl.signal,
       });
     } catch (err) {
-      this._readyState = "closed";
+      this.readyStateValue = "closed";
       this.queue.finish();
-      this._dispatch("close", undefined);
+      this.dispatch("close", undefined);
       throw err;
     }
 
     if (!response.ok || !response.body) {
-      this._readyState = "closed";
+      this.readyStateValue = "closed";
       this.queue.finish();
-      this._dispatch("close", undefined);
-      throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+      this.dispatch("close", undefined);
+      throw new Error(
+        `SSE connection failed: ${response.status} ${response.statusText}`,
+      );
     }
 
-    this._readyState = "open";
-    this._dispatch("open", undefined);
+    this.readyStateValue = "open";
+    this.dispatch("open", undefined);
 
     // Decode bytes → lines → SSE events
     const reader = response.body.getReader();
@@ -277,7 +295,7 @@ export class SessionEventSource {
         // non-JSON data — keep as string
       }
 
-      this._dispatch(eventName, data);
+      this.dispatch(eventName, data);
       this.queue.push({ event: eventName, data });
 
       if (eventName === "run.done") {
@@ -306,12 +324,16 @@ export class SessionEventSource {
       if (remainder) parseLine(remainder);
     } catch (err) {
       if ((err as { name?: string }).name !== "AbortError") {
-        this._dispatch("run.error", { kind: "error", message: String(err), code: "STREAM_ERROR" });
+        this.dispatch("run.error", {
+          kind: "error",
+          message: String(err),
+          code: "STREAM_ERROR",
+        });
       }
     } finally {
-      this._readyState = "closed";
+      this.readyStateValue = "closed";
       this.queue.finish();
-      this._dispatch("close", undefined);
+      this.dispatch("close", undefined);
     }
 
     if (!doneEvent) {
@@ -321,7 +343,7 @@ export class SessionEventSource {
     return doneEvent;
   }
 
-  private _dispatch(event: string, data: unknown): void {
+  private dispatch(event: string, data: unknown): void {
     const list = this.handlers.get(event);
     if (list) {
       for (const handler of list) {

@@ -1,4 +1,4 @@
-import type { AgentDef } from "../../types/agent.js";
+import type { AgentDef } from "../../../types/agent.js";
 
 // ---------------------------------------------------------------------------
 // RoutingAssignment — a single agent in a fan-out routing decision
@@ -34,11 +34,16 @@ export interface RoutingAssignment {
  *
  * `confidence` is a value in [0, 1] expressing how certain the strategy is
  * about the selected agents. Deterministic strategies always emit 1.
+ *
+ * `strategy` identifies the routing mechanism used — `"rule"` for deterministic
+ * pattern matching, `"triage"` for LLM-based selection. Used for lineage records.
  */
 export interface RoutingDecision {
   assignments: RoutingAssignment[];
   confidence: number;
   reason: string;
+  /** Identifies the routing mechanism used for this decision. */
+  strategy: "rule" | "triage";
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +108,8 @@ export class RuleRouter {
    * @param agent    The agent to route to when the pattern matches.
    */
   when(pattern: RegExp | string, agent: AgentDef): this {
-    if (this.built) throw new Error("RuleRouter: cannot add rules after build()");
+    if (this.built)
+      throw new Error("RuleRouter: cannot add rules after build()");
     const re =
       typeof pattern === "string"
         ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
@@ -116,7 +122,8 @@ export class RuleRouter {
    * Register a catch-all agent used when no rule matches.
    */
   fallback(agent: AgentDef): this {
-    if (this.built) throw new Error("RuleRouter: cannot set fallback after build()");
+    if (this.built)
+      throw new Error("RuleRouter: cannot set fallback after build()");
     this.fallbackAgent = agent;
     return this;
   }
@@ -138,6 +145,7 @@ export class RuleRouter {
               assignments: [{ agentDef: agent, parallel: false }],
               confidence: 1,
               reason: `Pattern /${pattern.source}/ matched the input.`,
+              strategy: "rule",
             };
           }
         }
@@ -147,6 +155,7 @@ export class RuleRouter {
             assignments: [{ agentDef: fallback, parallel: false }],
             confidence: 0.5,
             reason: "No rule matched — routed to fallback agent.",
+            strategy: "rule",
           };
         }
 

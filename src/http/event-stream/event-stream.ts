@@ -2,7 +2,7 @@ import { startRun, continueRun } from "../../kernel/index.js";
 import { AgentRouter } from "../../orchestration/agent-router/agent-router.js";
 import type { AgentDef } from "../../types/agent.js";
 import type { ApprovalDecision } from "../../types/checkpoint.js";
-import type { RestoreConfig } from "../../kernel/index.js";
+import type { RestoreConfig } from "../../kernel/entry/continue.js";
 import type { StreamOptions } from "../stream-options.js";
 import { encodeMessage, encodeError, createDeltaBuffer } from "./_helpers.js";
 
@@ -22,7 +22,6 @@ export const SSE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-cache, no-transform",
   Connection: "keep-alive",
 };
-
 
 // ---------------------------------------------------------------------------
 // SessionEventStream — server-side SSE producer
@@ -94,7 +93,10 @@ export class SessionEventStream {
   /**
    * Start a new run and stream its events as SSE.
    */
-  stream(input: string, options: StreamOptions = {}): ReadableStream<Uint8Array> {
+  stream(
+    input: string,
+    options: StreamOptions = {},
+  ): ReadableStream<Uint8Array> {
     const target = this.target;
     const config = options.config ?? {};
     const externalOnEvent = options.onEvent;
@@ -123,7 +125,9 @@ export class SessionEventStream {
           }
         } catch (err) {
           flush();
-          ctrl.enqueue(encodeError(err instanceof Error ? err.message : String(err)));
+          ctrl.enqueue(
+            encodeError(err instanceof Error ? err.message : String(err)),
+          );
         } finally {
           flush();
           self.controller = undefined;
@@ -150,8 +154,8 @@ export class SessionEventStream {
     if (target instanceof AgentRouter) {
       throw new Error(
         "SessionEventStream.resume() is not supported for AgentRouter targets. " +
-        "Construct a SessionEventStream with the individual AgentDef that was " +
-        "suspended (available from the suspend snapshot).",
+          "Construct a SessionEventStream with the individual AgentDef that was " +
+          "suspended (available from the suspend snapshot).",
       );
     }
 
@@ -179,7 +183,9 @@ export class SessionEventStream {
           await continueRun(checkpointId, decisions, restoreConfig);
         } catch (err) {
           flush();
-          ctrl.enqueue(encodeError(err instanceof Error ? err.message : String(err)));
+          ctrl.enqueue(
+            encodeError(err instanceof Error ? err.message : String(err)),
+          );
         } finally {
           flush();
           self.controller = undefined;

@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { InMemory, type InMemoryEmbedder } from "./in-memory.js";
-import type { MemoryEntry, MemoryScope } from "../../../interfaces/memory.js";
+import type { MemoryEntry, MemoryScope } from "../../../contracts/memory.js";
 
 const scopeA: MemoryScope = { agentId: "agent-1", namespace: "notes" };
 const scopeB: MemoryScope = { agentId: "agent-2", namespace: "notes" };
 
-function mk(id: string, text: string, scope: MemoryScope = scopeA): MemoryEntry {
+function mk(
+  id: string,
+  text: string,
+  scope: MemoryScope = scopeA,
+): MemoryEntry {
   return { id, text, scope };
 }
 

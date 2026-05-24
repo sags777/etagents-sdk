@@ -1,8 +1,39 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { ToolDef } from "../../types/tool.js";
+import type { JsonSchema } from "../../types/tool.js";
 import { McpError } from "../../errors.js";
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Narrows a JsonSchema to the MCP-required object-schema shape. */
+function toMcpInputSchema(
+  schema: JsonSchema,
+  toolName: string,
+): {
+  type: "object";
+  properties?: Record<string, object>;
+  required?: string[];
+} {
+  if (schema.type !== "object") {
+    throw new McpError(
+      `Tool "${toolName}" schema.type must be "object" for MCP compatibility, got: ${String(schema.type)}`,
+    );
+  }
+  return {
+    type: "object",
+    ...(schema.properties !== undefined && {
+      properties: schema.properties as Record<string, object>,
+    }),
+    ...(schema.required !== undefined && { required: schema.required }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // McpServer
@@ -34,7 +65,7 @@ export class McpServer {
       tools: Array.from(this.tools.values()).map((t) => ({
         name: t.name,
         description: t.description,
-        inputSchema: t.schema as { type: "object"; properties?: Record<string, object>; required?: string[] },
+        inputSchema: toMcpInputSchema(t.schema, t.name),
       })),
     }));
 
@@ -42,7 +73,9 @@ export class McpServer {
       const def = this.tools.get(req.params.name);
       if (!def) {
         return {
-          content: [{ type: "text" as const, text: `Unknown tool: ${req.params.name}` }],
+          content: [
+            { type: "text" as const, text: `Unknown tool: ${req.params.name}` },
+          ],
           isError: true,
         };
       }
@@ -63,7 +96,8 @@ export class McpServer {
    * Returns `this` for fluent chaining.
    */
   addTool(def: ToolDef): this {
-    if (this.started) throw new McpError("Cannot add tools after McpServer has started");
+    if (this.started)
+      throw new McpError("Cannot add tools after McpServer has started");
     this.tools.set(def.name, def);
     return this;
   }

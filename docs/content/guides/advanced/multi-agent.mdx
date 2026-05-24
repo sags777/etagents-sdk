@@ -129,11 +129,7 @@ AgentRouter.create()
 
 `router.run(input, config?)` routes the input, runs the selected agent, and returns a `RunResult`. The `config` is forwarded to `startRun` so you can pass `runId`, `signal`, `onEvent`, etc.
 
----
-
-## Depth guard
-
-To prevent infinite delegation loops when agents are nested, the kernel tracks delegation depth. The default maximum depth is 5. Exceeding it throws an `AgentError` with code `"depth_exceeded"`.
+When a router dispatches a child run, the child `RunResult` carries `parentRunId` and `routingDecisionId` for lineage inspection. These fields are set internally by `AgentRouter`; callers should treat them as read-only metadata.
 
 ---
 
@@ -172,5 +168,5 @@ When a specialist suspends for HITL approval, the `RunResult` returned by `route
 
 - [Core Concepts](../../getting-started/concepts) — `AgentDef` and `startRun`.
 - [HITL](./hitl) — Human-in-the-loop inside routed agents.
-- [Error Handling](./error-handling) — `AgentError` and routing failures.
+- [Error Handling](./error-handling) — `CheckpointError`, `ToolError`, and run-failure patterns.
 

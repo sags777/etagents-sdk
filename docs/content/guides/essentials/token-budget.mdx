@@ -36,7 +36,7 @@ The `BudgetLedger` accumulates `prompt + completion` tokens after each turn. Whe
 After each LLM turn, the kernel calls `BudgetLedger.checkAndEmit()`:
 
 1. Adds the turn's `prompt + completion` tokens to the running total.
-2. If `warnAtPercent` threshold is crossed, emits a `warning` event.
+2. If the `warnAt` threshold is crossed, emits a `warning` event.
 3. If total exceeds `maxTokens`, emits an `exceeded` event and sets `status: "budget_exceeded"`.
 4. The turn loop exits.
 
@@ -46,12 +46,12 @@ Tool execution is not counted — only LLM tokens.
 
 ## Budget warning
 
-Set `budget.warnAtPercent` to receive early notice before the hard cap hits. The `warning` event fires once when the threshold is first crossed.
+Set `budget.warnAt` to receive early notice before the hard cap hits. `warnAt` is a fraction between `0` and `1`, and the `warning` event fires once when the threshold is first crossed.
 
 ```typescript
 const result = await startRun(agent, input, {
   maxTokens: 10_000,
-  budget: { warnAtPercent: 80 },  // warning fires at 8 000 tokens
+  budget: { warnAt: 0.8 },  // warning fires at 8 000 tokens
   onEvent(event) {
     if (event.kind === "warning") {
       console.warn(`Approaching limit: ${event.usage.total} / 10 000 tokens used`);

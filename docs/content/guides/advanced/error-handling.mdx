@@ -2,7 +2,7 @@
 id: error-handling
 title: Error Handling
 sidebar_label: Error Handling
-description: Handle AgentError, ToolError, BudgetError, and HitlError in production.
+description: Handle EtaError, ToolError, CheckpointError, and RunResult failures in production.
 ---
 
 # Error Handling
@@ -15,24 +15,30 @@ The SDK uses a typed error hierarchy rooted at `EtaError`. Every error has a `co
 
 ```
 EtaError
-├── AgentError       — run-level failures (budget, cancellation, depth)
-├── ToolError        — tool execution failures (timeout, handler throws, schema mismatch)
-├── BudgetError      — token budget exceeded (also surfaces as RunStatus "budget_exceeded")
-└── HitlError        — HITL failures (checkpoint expired, store error)
+├── ModelError       — unsupported model shorthand or provider setup failure
+├── StoreError       — store provider failures
+├── MemoryError      — memory provider failures
+├── PrivacyError     — privacy provider failures
+├── ToolError        — tool validation or execution failures
+├── McpError         — MCP client/server failures
+├── BudgetError      — budget helper failures
+└── CheckpointError  — HITL resume failures
 ```
 
-All errors extend `EtaError`, which extends `Error`. You can catch at any level:
+All exported SDK errors extend `EtaError`, which extends `Error`. The `code` is coarse-grained and stable, for example `"TOOL_ERROR"` or `"CHECKPOINT_ERROR"`.
+
+You can catch at any level:
 
 ```typescript
-import { EtaError, AgentError, ToolError } from "@etagents/sdk";
+import { CheckpointError, EtaError, ModelError } from "@etagents/sdk";
 
 try {
-  const result = await startRun(agent, input);
+  const result = await continueRun(checkpointId, decisions, { agent });
 } catch (err) {
-  if (err instanceof HitlError) {
-    // checkpoint expired or store failure
-  } else if (err instanceof AgentError) {
-    // run-level error
+  if (err instanceof CheckpointError) {
+    // checkpoint missing or decisions were incomplete
+  } else if (err instanceof ModelError) {
+    // unsupported string model shorthand during createAgent()
   } else if (err instanceof EtaError) {
     // any SDK error
   } else {
@@ -54,29 +60,29 @@ Most run failures surface through `RunResult.status`, not thrown exceptions. Kno
 | AbortSignal fired | `status: "cancelled"` (no throw) |
 | HITL suspension | `status: "awaiting_approval"` (no throw) |
 | Unexpected error in turn loop | `status: "error"` + `result.response` contains error message |
-| Checkpoint expired (`continueRun`) | Throws `HitlError` |
-| Invalid `AgentConfig` | Throws `AgentError` at `createAgent` time |
+| Checkpoint missing or decisions incomplete (`continueRun`) | Throws `CheckpointError` |
+| Unsupported string model shorthand (`createAgent`) | Throws `ModelError` |
 
 Only `continueRun` and `createAgent` commonly throw. `startRun` almost never throws — check `status` instead.
 
 ---
 
-## AgentError codes
+## ModelError
 
-| Code | When |
-|---|---|
-| `"config_invalid"` | `createAgent` received invalid configuration |
-| `"depth_exceeded"` | Agent delegation depth exceeded the limit (default: 5) |
-| `"run_failed"` | Unrecoverable error in the turn loop |
+`createAgent` throws `ModelError` when a string model shorthand does not match a supported provider prefix. All `ModelError` instances use the fixed code `"MODEL_ERROR"`.
 
 ```typescript
-import { AgentError } from "@etagents/sdk";
+import { ModelError, createAgent } from "@etagents/sdk";
 
 try {
-  const agent = createAgent({ name: "", systemPrompt: "..." }); // name is empty
+  createAgent({
+    name: "assistant",
+    systemPrompt: "You are helpful.",
+    model: "bad-model",
+  });
 } catch (err) {
-  if (err instanceof AgentError && err.code === "config_invalid") {
-    console.error("Bad config:", err.message);
+  if (err instanceof ModelError) {
+    console.error(err.code, err.message);
   }
 }
 ```
@@ -85,17 +91,9 @@ try {
 
 ## ToolError
 
-`ToolError` is used when a tool fails. It does **not** throw out of `startRun` — the error is packaged as a tool result and sent back to the LLM so it can handle it gracefully.
+`ToolError` represents schema-validation and handler failures inside tool execution. In normal runs it does **not** escape from `startRun` — the kernel packages the failure as a tool result, marks it with `isError: true`, and sends it back to the model.
 
-Common `ToolError` causes:
-
-| Cause | Code |
-|---|---|
-| Handler threw an exception | `"handler_error"` |
-| Tool timed out | `"timeout"` |
-| Arguments failed Zod validation | `"schema_error"` |
-
-The LLM sees the error message in the tool result and typically acknowledges the failure or tries an alternative approach.
+All `ToolError` instances use the fixed code `"TOOL_ERROR"`. The detailed reason stays in the error message and the tool-result payload.
 
 To detect tool errors in your code:
 
@@ -114,32 +112,24 @@ const failedTools = result.toolCalls.filter((t) => t.isError);
 
 ---
 
-## HitlError
+## CheckpointError
 
-`HitlError` is thrown by `continueRun` when checkpoint handling fails.
+`CheckpointError` is thrown by `continueRun` when the kernel cannot restore a suspended run or when the provided approval decisions do not cover every pending tool call.
 
-| Code | When |
-|---|---|
-| `"checkpoint_expired"` | The checkpoint TTL elapsed before `continueRun` was called |
-| `"checkpoint_not_found"` | The checkpoint ID does not exist in the store |
-| `"store_error"` | The HITL store threw during read or write |
+All `CheckpointError` instances use the fixed code `"CHECKPOINT_ERROR"`.
 
 ```typescript
-import { HitlError } from "@etagents/sdk";
+import { CheckpointError, EtaError } from "@etagents/sdk";
 
 try {
   const result = await continueRun(checkpointId, decisions, { agent });
 } catch (err) {
-  if (err instanceof HitlError) {
-    switch (err.code) {
-      case "checkpoint_expired":
-        // Restart the run from scratch
-        return await startRun(agent, originalPrompt, { runId });
-      case "checkpoint_not_found":
-        throw new Error("Invalid checkpoint ID");
-      default:
-        throw err;
-    }
+  if (err instanceof CheckpointError) {
+    console.error(err.code, err.message);
+  }
+
+  if (err instanceof EtaError && err.code === "CHECKPOINT_ERROR") {
+    // same condition, if you prefer code-based handling
   }
 }
 ```
@@ -202,6 +192,6 @@ async function runSafe(
 ## Related
 
 - [Streaming](../essentials/streaming) — `error` and `exceeded` RunEvent kinds.
-- [HITL](./hitl) — `HitlError` on checkpoint expiry.
-- [Token Budget](../essentials/token-budget) — `budget_exceeded` status and `BudgetError`.
+- [HITL](./hitl) — `CheckpointError` on resume failures.
+- [Token Budget](../essentials/token-budget) — `budget_exceeded` status and budget events.
 - [Testing](../testing) — How to simulate errors with `MockModel`.

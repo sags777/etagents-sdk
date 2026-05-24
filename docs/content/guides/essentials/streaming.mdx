@@ -95,12 +95,12 @@ case "tool_result":
 
 ### budget warning
 
-The `warning` event fires when cumulative token usage crosses `budget.warnAtPercent` of `maxTokens`. Use it to give users early notice before the run stops.
+The `warning` event fires when cumulative token usage crosses `budget.warnAt` of `maxTokens`. `warnAt` is a fraction between `0` and `1`, so `0.8` means "warn at 80% of the cap".
 
 ```typescript
 const result = await startRun(agent, input, {
   maxTokens: 10_000,
-  budget: { warnAtPercent: 80 }, // warning fires at 8 000 tokens
+  budget: { warnAt: 0.8 }, // warning fires at 8 000 tokens
   onEvent(event) {
     if (event.kind === "warning") {
       console.warn(`Token budget at ${event.state.total} / 10 000`);

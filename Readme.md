@@ -31,8 +31,11 @@
   - [Privacy](#privacy-provider)
 - [Tools](#tools)
   - [Zod-typed parameters](#zod-typed-parameters)
+  - [Tool context](#tool-context)
   - [Parallel vs sequential](#parallel-vs-sequential)
   - [Tool timeout](#tool-timeout)
+  - [Tool result caching](#tool-result-caching)
+  - [Tool output truncation](#tool-output-truncation)
   - [Sensitive tools (HITL)](#sensitive-tools-hitl)
   - [Standalone execution](#standalone-execution)
 - [Runs](#runs)
@@ -201,9 +204,12 @@ const searchDatabase = defineTool({
 | `name` | `string` | Unique tool name (no spaces) |
 | `description` | `string` | Shown to the LLM to aid selection |
 | `params` | `ZodType` | Zod schema for input validation |
-| `handler` | `(args) => Promise<string>` | Async implementation — must return a string |
+| `handler` | `(args, context?) => Promise<string>` | Async implementation — receives validated args and optional `ToolContext` |
 | `sequential` | `boolean?` | If `true`, never runs concurrently with other tool calls |
 | `timeoutMs` | `number?` | Per-tool timeout; overrides session `toolTimeoutMs` |
+| `sensitive` | `boolean?` | Requires approval when `hitl.mode === "sensitive"` |
+| `cache` | `{ enabled: boolean; ttl?: number; ttlMs?: number }?` | Enables store-backed tool-result caching; `ttl` is in seconds and takes precedence over `ttlMs` |
+| `outputTruncation` | `{ maxChars: number; suffix?: string }?` | Compresses stale copies of large tool outputs in later turns |
 
 ### agentAsTool + agentToManifest
 
@@ -438,9 +444,10 @@ await startRun(agent, "Create a bug report", {
 |---|---|---|
 | `runId` | `string` | Unique ID of this run |
 | `agentName` | `string` | Name of the running agent |
+| `agentId` | `string?` | Stable agent identity used for persistence-scoped behaviors such as caching |
 | `messages` | `readonly Message[]` | Full conversation so far |
 | `metadata` | `Record<string, unknown>` | Caller-supplied values from `RunConfig.metadata` |
-| `store` | `StoreProvider?` | Agent's store (if configured) |
+| `store` | `StoreProvider?` | Agent's store; used by kernel tool-result caching when configured |
 
 ### Parallel vs Sequential
 
@@ -475,6 +482,44 @@ const result = await startRun(agent, input, { /* toolTimeoutMs set in AgentConfi
 ```
 
 `DEFAULT_CONFIG.toolTimeoutMs` is `30_000` ms. Timed-out tools receive a `ToolError` and the LLM sees the error message in the tool result.
+
+### Tool Result Caching
+
+Enable `cache` on a tool to let the kernel reuse successful results for identical calls instead of re-running the handler.
+
+```typescript
+const searchDocs = defineTool({
+  name: "search_docs",
+  description: "Search internal documentation",
+  params: z.object({ query: z.string() }),
+  cache: { enabled: true, ttl: 300 },
+  handler: async ({ query }) => JSON.stringify(await docs.search(query)),
+});
+```
+
+Cache behavior:
+
+- backed by the agent's `StoreProvider`; if no store is configured, the tool just executes normally
+- scoped by stable `agentId`, tool name, and args hash so different agents do not share entries accidentally
+- only successful tool results are cached
+- cache read/write failures fail open and do not interrupt the run
+- cache hits surface through `ToolCallRecord.isFromCache`
+
+### Tool Output Truncation
+
+Set `outputTruncation` when a tool can return large payloads that are useful in the current turn but should not keep bloating future prompts.
+
+```typescript
+const fetchLogs = defineTool({
+  name: "fetch_logs",
+  description: "Fetches recent application logs",
+  params: z.object({ service: z.string() }),
+  outputTruncation: { maxChars: 500, suffix: "\n...[truncated]" },
+  handler: async ({ service }) => logsClient.fetch(service),
+});
+```
+
+The current turn keeps the full tool result. On later turns, stale copies of that tool output in the message history are compressed before the next model call.
 
 ### Sensitive Tools (HITL)
 
@@ -523,10 +568,7 @@ const result = await startRun(agent, "Analyse Q4 sales", {
   maxTurns: 15,
   maxTokens: 16_000,
 
-  // Session identity — used for persistence and resumption
-  runId: "session-user-123",
-
-  // Arbitrary metadata attached to the persisted SessionSnapshot
+  // Arbitrary metadata forwarded into ToolContext and persisted with run/checkpoint records
   metadata: { userId: "u_abc", tier: "pro" },
 
   // Cancellation
@@ -545,6 +587,8 @@ const result = await startRun(agent, "Analyse Q4 sales", {
 });
 ```
 
+`runId` remains on `RunConfig` only for backward compatibility. `startRun()` always generates a fresh run ID for new runs, and caller-supplied `runId` values are ignored. `routingDecisionId` and `parentRunId` are public for lineage inspection but are set internally by `AgentRouter` rather than by external callers.
+
 ### RunResult Shape
 
 | Field | Type | Description |
@@ -558,6 +602,12 @@ const result = await startRun(agent, "Analyse Q4 sales", {
 | `checkpointId` | `string?` | Present when `status === "awaiting_approval"` |
 | `pendingApprovals` | `PendingApproval[]?` | Approval payloads for suspended HITL runs |
 | `agentResults` | `Record<string, RunResult>?` | Per-agent results returned by `AgentRouter.run()` |
+| `exitReason` | `string?` | Internal reason the turn loop stopped |
+| `durationMs` | `number?` | Wall-clock duration of the run in milliseconds |
+| `firstTokenMs` | `number?` | Time from run start to first model token in milliseconds |
+| `errorMessage` | `string?` | Populated when `status === "error"` |
+| `parentRunId` | `string?` | Present when this run was spawned from a parent `AgentRouter` run |
+| `routingDecisionId` | `string?` | Foreign key to the routing decision that dispatched this run |
 
 ### RunEvent Stream
 
@@ -694,40 +744,44 @@ The signal is checked before every LLM turn and threaded through to the model's 
 
 ## Persistence
 
-Attach a store and set a `runId` to automatically persist and resume sessions.
+Attach a store to an agent to persist completed runs and HITL checkpoints automatically.
 
 ```typescript
-import { FileStore } from "@etagents/sdk";
+import { FileStore, createAgent, startRun } from "@etagents/sdk";
 
-// ── First run ──
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant.",
   store: new FileStore(".sessions"),
 });
 
-await startRun(agent, "My name is Sagar.", { runId: "user-sagar" });
-
-// ── Later run — full history is hydrated automatically ──
-await startRun(agent, "What is my name?", { runId: "user-sagar" });
-// → "Your name is Sagar."
+const result = await startRun(agent, "Summarise the latest support ticket");
+console.log(result.status);
 ```
 
-**Session snapshot format:**
+The default persistence layer is normalized rather than snapshot-only. For a completed run, the kernel writes separate record families for the run itself, ordered messages, tool calls, and persisted lifecycle events. For a suspended HITL run, it also writes checkpoint metadata and pending approval records.
+
+`SessionSnapshot` and `SuspendSnapshot` are still the wire-safe shapes the kernel reconstructs when resuming, but the default adapter stores entity families in separate key spaces instead of one opaque blob.
+
+Practical notes:
+
+- `startRun()` always generates a fresh `runId`; caller-supplied `RunConfig.runId` is deprecated and ignored for new runs
+- persistence is best-effort; store failures do not fail the run
+- `continueRun(checkpointId, decisions, { agent })` reloads the suspended state from the store using the checkpoint ID
+- approval audit records retain `pending`, `approved`, and `rejected` decisions together with checkpoint metadata such as `triggerToolName`, `expiresAt`, and `resumeAttempts`
+
+**Suspend snapshot shape:**
 
 ```typescript
-interface SessionSnapshot {
-  version: 1;
-  runId: string;
-  messages: Message[];
-  metadata: Record<string, unknown>;
-  createdAt: string;   // ISO-8601
-  updatedAt: string;
-  __eta: {};           // Reserved for kernel use
+interface SuspendSnapshot {
+  session: SessionSnapshot;
+  pendingApprovals: PendingApproval[];
+  suspendedAt: string;
+  triggerToolName?: string;
+  expiresAt?: string;
+  resumeAttempts?: number;
 }
 ```
-
-The kernel persists a snapshot after every run (best-effort — persistence failures never crash a run). `continueRun` loads the snapshot, re-hydrates the message history, and executes the tool decisions before resuming the turn loop.
 
 ---
 
@@ -773,15 +827,13 @@ const callbackAgent = createAgent({
 
 ### Suspend and Resume
 
-When the kernel reaches a tool call requiring approval, it serialises the full run state to the HITL store as a `SuspendSnapshot` and returns with `status: "awaiting_approval"`. Call `continueRun` with approval decisions when the human has responded.
+When the kernel reaches a tool call requiring approval, it persists a checkpoint plus the data needed to reconstruct a `SuspendSnapshot`, then returns with `status: "awaiting_approval"`. Call `continueRun` with approval decisions when the human has responded.
 
 ```typescript
 import { startRun, continueRun } from "@etagents/sdk";
 
 // ── Step 1: Run suspends when it hits a sensitive tool ──
-const result = await startRun(agent, "Send an email to alice@example.com", {
-  runId: "session-alice",
-});
+const result = await startRun(agent, "Send an email to alice@example.com");
 
 // result.status === "awaiting_approval"
 // pendingApprovals holds the serialised tool calls
@@ -814,7 +866,7 @@ interface ApprovalDecision {
 }
 ```
 
-Denied tool calls receive a synthetic `"Tool call rejected by human reviewer."` result message that the LLM can incorporate into its final response.
+Denied tool calls receive a synthetic `"Tool call rejected by human reviewer."` result message that the LLM can incorporate into its final response. `continueRun()` requires a decision for every pending approval and throws `CheckpointError` before any tool executes if one is missing.
 
 ---
 
@@ -832,10 +884,10 @@ const agent = createAgent({
 });
 
 // First run — agent notes user preference
-await startRun(agent, "I prefer dark mode and Vim keybindings.", { runId: "u_1" });
+await startRun(agent, "I prefer dark mode and Vim keybindings.");
 
-// Later run — memories are retrieved and injected
-const result = await startRun(agent, "What are my editor preferences?", { runId: "u_1" });
+// Later run — memories are retrieved and injected automatically before the first turn
+const result = await startRun(agent, "What are my editor preferences?");
 // → "You prefer dark mode and Vim keybindings."
 ```
 
@@ -1321,6 +1373,8 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | `executeTool(tool, args)` | Standalone tool execution with validation |
 | `agentAsTool(agent, config?)` | Wrap an `AgentDef` as a delegating tool |
 | `agentToManifest(agent)` | Serialise an agent's public manifest |
+| `Agent` | Copy-on-write builder for agent definitions |
+| `Tool` | Copy-on-write builder for tool definitions |
 
 #### Kernel
 
@@ -1328,6 +1382,8 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 |--------|-------------|
 | `startRun(agent, input, config?)` | Run an agent to completion |
 | `continueRun(checkpointId, decisions, config)` | Resume from HITL suspension |
+| `RunContext` | Public run-context shape used by kernel-facing integrations |
+| `RestoreConfig` | Config passed to `continueRun()` |
 
 #### Model Providers
 
@@ -1360,7 +1416,7 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | Export | Description |
 |--------|-------------|
 | `RegexPrivacy` | Rule-based PII masking with placeholder format `⟨eta:…⟩` |
-| `BUILTIN_RULES` | `email`, `phone`, `ssn`, `creditCard`, `ipv4` |
+| `BUILTIN_RULES` | `email`, `phone`, `ssn`, `creditCard`, `ipAddress` |
 | `createPrivacy` | Category-flag shorthand for `RegexPrivacy` |
 
 #### Orchestration
@@ -1387,7 +1443,6 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | Export | Description |
 |--------|-------------|
 | `runInsight(messages, model, config)` | Extract facts + summary from conversation |
-| `INSIGHT_PROMPTS` | Default system/user prompt objects |
 
 #### MCP
 
@@ -1405,6 +1460,12 @@ eta mask "Email bob@acme.com" --rules email,phone --json
 | `ScannedAgent` | `{ file: string }` — absolute path to a discovered agent file |
 | `ScannedMcp` | `{ file, serverName?, transport? }` — parsed MCP config file |
 | `ScanOptions` | `{ agents?: boolean, mcp?: boolean }` |
+
+#### Collections
+
+| Export | Description |
+|--------|-------------|
+| `browserMcp` | Browser MCP bundle exported from the repo-local collections surface |
 
 #### Config + Errors
 
@@ -1468,6 +1529,12 @@ Run any example:
 ```bash
 ANTHROPIC_API_KEY=sk-... npx tsx examples/01-basic-run.ts
 ```
+
+---
+
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the current module layout, dependency rules, provider boundaries, and kernel design notes.
 
 ---
 

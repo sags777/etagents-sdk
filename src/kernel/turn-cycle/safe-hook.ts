@@ -11,7 +11,9 @@
  * Different from the legacy implementation: typed generic return, logs the
  * agent name context, and does not rethrow under any condition.
  */
-export async function safeHook<T>(fn: () => Promise<T>): Promise<T | undefined> {
+export async function safeHook<T>(
+  fn: () => Promise<T>,
+): Promise<T | undefined> {
   try {
     return await fn();
   } catch (err) {

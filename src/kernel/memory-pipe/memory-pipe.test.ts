@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { MemoryPipe } from "./memory-pipe.js";
 import { InMemory } from "../../providers/memory/in-memory/in-memory.js";
-import type { MemoryScope } from "../../interfaces/memory.js";
+import type { MemoryScope } from "../../contracts/memory.js";
 
 const scope: MemoryScope = { agentId: "agent-1", namespace: "default" };
 
@@ -37,7 +37,10 @@ describe("MemoryPipe", () => {
 
     it("passes the scope to the memory provider search", async () => {
       const memory = new InMemory();
-      const otherScope: MemoryScope = { agentId: "other-agent", namespace: "default" };
+      const otherScope: MemoryScope = {
+        agentId: "other-agent",
+        namespace: "default",
+      };
       await memory.index({ id: "f1", text: "secret fact", scope: otherScope });
 
       const pipe = MemoryPipe.create(memory, scope);
@@ -71,7 +74,9 @@ describe("MemoryPipe", () => {
 
     it("swallows errors from the provider — never throws", async () => {
       const failingMemory = new InMemory();
-      vi.spyOn(failingMemory, "index").mockRejectedValue(new Error("provider down"));
+      vi.spyOn(failingMemory, "index").mockRejectedValue(
+        new Error("provider down"),
+      );
       const pipe = MemoryPipe.create(failingMemory, scope);
 
       expect(() => pipe.index(["fact"])).not.toThrow();

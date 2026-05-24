@@ -1,5 +1,9 @@
 import { McpClient } from "../../mcp/client/client.js";
-import type { McpServerConfig, McpHandle, McpToolDef } from "../../types/mcp.js";
+import type {
+  McpServerConfig,
+  McpHandle,
+  McpToolDef,
+} from "../../types/mcp.js";
 
 // ---------------------------------------------------------------------------
 // McpHub — connects to all configured MCP servers and aggregates their tools
@@ -38,7 +42,9 @@ export class McpHub {
           }
         } catch (err) {
           // MCP server failed to start or list tools — log and continue without its tools
-          console.warn(`[McpHub] Failed to connect to MCP server "${cfg.serverName}": ${String(err)}`);
+          console.warn(
+            `[McpHub] Failed to connect to MCP server "${cfg.serverName}": ${String(err)}`,
+          );
         }
       }),
     );

@@ -2,20 +2,9 @@ import type { ToolCall, ToolResult } from "../../types/message.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import type { ToolContext } from "../../types/tool.js";
-import { executeTool } from "../../agent/executor/executor.js";
-
-// ---------------------------------------------------------------------------
-// Cache key helper
-// ---------------------------------------------------------------------------
-
-/**
- * Build a stable cache key from tool name + args.
- * Uses sorted JSON so `{b:1, a:2}` and `{a:2, b:1}` produce the same key.
- */
-function cacheKey(toolName: string, args: Record<string, unknown>): string {
-  const stable = JSON.stringify(args, Object.keys(args).sort());
-  return `eta:tool-cache:${toolName}:${Buffer.from(stable).toString("base64url")}`;
-}
+import { executeTool } from "../../agent/tool-executor.js";
+import { toolCacheKey } from "../keys.js";
+import { MCP_NAMESPACE_SEPARATOR } from "../../constants.js";
 
 // ---------------------------------------------------------------------------
 // routeTool — dispatches a single tool call to local or MCP handler
@@ -41,6 +30,32 @@ function cacheKey(toolName: string, args: Record<string, unknown>): string {
 export interface TimedToolResult {
   result: ToolResult;
   durationMs: number;
+  isFromCache: boolean;
+}
+
+interface RoutedToolResult extends ToolResult {
+  isFromCache: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function isMcpTool(name: string): boolean {
+  return name.startsWith(MCP_NAMESPACE_SEPARATOR);
+}
+
+function normalizeRawOutput(raw: unknown): string {
+  return typeof raw === "string" ? raw : JSON.stringify(raw);
+}
+
+function buildRoutedResult(
+  toolCallId: string,
+  content: string,
+  isError: boolean,
+  isFromCache: boolean,
+): RoutedToolResult {
+  return { toolCallId, content, isError, isFromCache };
 }
 
 /**
@@ -56,7 +71,11 @@ export async function routeToolTimed(
 ): Promise<TimedToolResult> {
   const start = Date.now();
   const result = await routeTool(call, registry, hub, context);
-  return { result, durationMs: Date.now() - start };
+  return {
+    result,
+    durationMs: Date.now() - start,
+    isFromCache: result.isFromCache,
+  };
 }
 
 export async function routeTool(
@@ -64,45 +83,40 @@ export async function routeTool(
   registry: ToolRegistry,
   hub: McpHub,
   context: ToolContext,
-): Promise<ToolResult> {
-  const isMcp = call.name.startsWith("mcp__");
+): Promise<RoutedToolResult> {
+  const isMcp = isMcpTool(call.name);
 
   if (isMcp) {
     try {
       const raw = await hub.callTool(call.name, call.args);
-      return {
-        toolCallId: call.id,
-        content: typeof raw === "string" ? raw : JSON.stringify(raw),
-        isError: false,
-      };
+      return buildRoutedResult(call.id, normalizeRawOutput(raw), false, false);
     } catch (err) {
-      return {
-        toolCallId: call.id,
-        content: err instanceof Error ? err.message : String(err),
-        isError: true,
-      };
+      return buildRoutedResult(
+        call.id,
+        err instanceof Error ? err.message : String(err),
+        true,
+        false,
+      );
     }
   }
 
   const def = registry.get(call.name);
   if (!def) {
-    return {
-      toolCallId: call.id,
-      content: `Unknown tool: "${call.name}"`,
-      isError: true,
-    };
+    return buildRoutedResult(call.id, `Unknown tool: "${call.name}"`, true, false);
   }
 
-  // Tool-result cache check
+  // Tool-result cache check — key scoped by agentId to prevent cross-agent pollution.
   const store = context.store;
   const useCache = def.cache?.enabled && store != null;
-  const key = useCache ? cacheKey(call.name, call.args) : "";
+  const key = useCache
+    ? toolCacheKey(context.agentId ?? context.agentName, call.name, call.args)
+    : "";
 
   if (useCache) {
     try {
       const cached = await store!.read<string>(key);
       if (cached !== null) {
-        return { toolCallId: call.id, content: cached, isError: false };
+        return buildRoutedResult(call.id, cached, false, true);
       }
     } catch {
       // Cache read failure is non-fatal — proceed to execute
@@ -120,9 +134,5 @@ export async function routeTool(
       });
   }
 
-  return {
-    toolCallId: call.id,
-    content: exec.output,
-    isError: exec.isError,
-  };
+  return buildRoutedResult(call.id, exec.output, exec.isError, false);
 }

@@ -1,6 +1,10 @@
 import { nanoid } from "nanoid";
-import type { MemoryProvider, MemoryMatch, MemoryScope } from "../../interfaces/memory.js";
-import type { ModelProvider } from "../../interfaces/model.js";
+import type {
+  MemoryProvider,
+  MemoryMatch,
+  MemoryScope,
+} from "../../contracts/memory.js";
+import type { ModelProvider } from "../../contracts/model.js";
 import { MEMORY_PIPE_HYDE_SYSTEM_PROMPT } from "../../prompts.js";
 
 // ---------------------------------------------------------------------------
@@ -64,7 +68,9 @@ export class MemoryPipe {
           { role: "user", content: query },
         ]);
         const text =
-          typeof resp.message.content === "string" ? resp.message.content.trim() : "";
+          typeof resp.message.content === "string"
+            ? resp.message.content.trim()
+            : "";
         if (text) searchQuery = text;
       } catch {
         // HyDE failure is non-fatal — fall back to raw query

@@ -1,4 +1,4 @@
-import type { TokenUsage } from "../../interfaces/model.js";
+import type { TokenUsage } from "../../contracts/model.js";
 import type { BudgetState, BudgetEvent } from "../../types/budget.js";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +29,11 @@ export class BudgetLedger {
   }
 
   state(): BudgetState {
-    return { prompt: this.prompt, completion: this.completion, total: this.total };
+    return {
+      prompt: this.prompt,
+      completion: this.completion,
+      total: this.total,
+    };
   }
 
   isExceeded(limit: number): boolean {

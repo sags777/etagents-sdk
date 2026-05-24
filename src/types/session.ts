@@ -1,6 +1,6 @@
 import type { Message } from "./message.js";
-import type { TokenUsage } from "../interfaces/model.js";
-import type { PrivacyMap } from "../interfaces/privacy.js";
+import type { TokenUsage } from "../contracts/model.js";
+import type { PrivacyMap } from "../contracts/privacy.js";
 
 // ---------------------------------------------------------------------------
 // Session snapshot (persisted to store)

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createAgent } from "../../agent/create-agent/create-agent.js";
-import { defineTool } from "../../agent/define-tool/define-tool.js";
-import { startRun } from "./run.js";
+import { createAgent } from "../../agent/agent-builder.js";
+import { defineTool } from "../../agent/tool-builder.js";
+import { startRun } from "./start.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
 import { InMemory } from "../../providers/memory/in-memory/in-memory.js";
 import { RegexPrivacy } from "../../providers/privacy/regex-privacy/regex-privacy.js";
@@ -17,7 +17,9 @@ import { z } from "zod";
 
 describe("startRun", () => {
   it("returns complete status with model text response", async () => {
-    const model = MockModel.create([{ kind: "text", content: "Hello from the agent!" }]);
+    const model = MockModel.create([
+      { kind: "text", content: "Hello from the agent!" },
+    ]);
     const result = await startRun(
       createAgent({ name: "agent", systemPrompt: "You help.", model }),
       "Hello",
@@ -38,12 +40,20 @@ describe("startRun", () => {
     });
 
     const model = MockModel.create([
-      { kind: "tools", calls: [{ id: "call-1", name: "echo", input: { msg: "hi" } }] },
+      {
+        kind: "tools",
+        calls: [{ id: "call-1", name: "echo", input: { msg: "hi" } }],
+      },
       { kind: "text", content: "Got: echo: hi" },
     ]);
 
     const result = await startRun(
-      createAgent({ name: "agent", systemPrompt: "Use tools.", model, tools: [echoTool] }),
+      createAgent({
+        name: "agent",
+        systemPrompt: "Use tools.",
+        model,
+        tools: [echoTool],
+      }),
       "Say hello",
     );
 
@@ -59,15 +69,21 @@ describe("startRun", () => {
 
   it("retrieves and injects memory into system prompt", async () => {
     const memory = new InMemory();
+    const agent = createAgent({
+      name: "agent",
+      systemPrompt: "You help.",
+      model: MockModel.create([{ kind: "text", content: "Sure!" }]),
+      memory,
+    });
     // Use overlapping words in fact and query so word-overlap scoring returns > 0
     await memory.index({
       id: "fact-1",
       text: "concise helpful answers",
-      scope: { agentId: "agent", namespace: "default" },
+      scope: { agentId: agent.agentId, namespace: "default" },
     });
 
     let capturedMessages: unknown[] = [];
-    const model = MockModel.create([{ kind: "text", content: "Sure!" }]);
+    const model = agent.model as MockModel;
 
     const origStream = model.stream.bind(model);
     model.stream = async function* (messages, opts) {
@@ -75,10 +91,7 @@ describe("startRun", () => {
       yield* origStream(messages, opts);
     };
 
-    await startRun(
-      createAgent({ name: "agent", systemPrompt: "You help.", model, memory }),
-      "Give concise helpful answers",
-    );
+    await startRun(agent, "Give concise helpful answers");
 
     const systemMsg = capturedMessages.find(
       (m: unknown) => (m as { role: string }).role === "system",
@@ -88,7 +101,11 @@ describe("startRun", () => {
 
   it("masks PII before the model and unmasks in the response", async () => {
     const privacy = new RegexPrivacy([
-      { name: "email", category: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
+      {
+        name: "email",
+        category: "email",
+        pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+      },
     ]);
 
     let sentMessages: unknown[] = [];
@@ -98,12 +115,21 @@ describe("startRun", () => {
     model.stream = async function* (messages) {
       sentMessages = messages;
       // Figure out what placeholder was injected into the user message
-      const userMsg = messages.find((m) => m.role === "user") as { content: string } | undefined;
+      const userMsg = messages.find((m) => m.role === "user") as
+        | { content: string }
+        | undefined;
       const match = userMsg?.content.match(/⟨eta:[A-Z]+:[0-9a-f]+⟩/);
       capturedPlaceholder = match?.[0] ?? "";
       // Return a response containing the placeholder so unmask can restore it
-      yield { type: "text" as const, delta: `Your address: ${capturedPlaceholder}` };
-      yield { type: "finish" as const, finishReason: "stop" as const, usage: { prompt: 0, completion: 0, total: 0 } };
+      yield {
+        type: "text" as const,
+        delta: `Your address: ${capturedPlaceholder}`,
+      };
+      yield {
+        type: "finish" as const,
+        finishReason: "stop" as const,
+        usage: { prompt: 0, completion: 0, total: 0 },
+      };
     };
 
     const result = await startRun(
@@ -112,7 +138,9 @@ describe("startRun", () => {
     );
 
     // Model received masked input — no raw email
-    const userMsg = sentMessages.find((m: unknown) => (m as { role: string }).role === "user") as { content: string } | undefined;
+    const userMsg = sentMessages.find(
+      (m: unknown) => (m as { role: string }).role === "user",
+    ) as { content: string } | undefined;
     expect(userMsg?.content).not.toContain("user@example.com");
     expect(userMsg?.content).toMatch(/⟨eta:/);
 
@@ -155,12 +183,19 @@ describe("startRun", () => {
     ]);
 
     const result = await startRun(
-      createAgent({ name: "agent", systemPrompt: "loop.", model, tools: [echoTool] }),
+      createAgent({
+        name: "agent",
+        systemPrompt: "loop.",
+        model,
+        tools: [echoTool],
+      }),
       "Go",
       { maxTurns: 2 },
     );
 
     expect(result.turns).toBeLessThanOrEqual(2);
-    expect(["complete", "cancelled", "budget_exceeded"]).toContain(result.status);
+    expect(["complete", "cancelled", "budget_exceeded"]).toContain(
+      result.status,
+    );
   });
 });

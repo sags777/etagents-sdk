@@ -104,7 +104,11 @@ describe("BudgetLedger", () => {
       const ledger = new BudgetLedger(cb);
       ledger.add({ prompt: 10, completion: 90, total: 100 });
       ledger.checkAndEmit(100);
-      expect(cb.mock.calls[0][0].state).toEqual({ prompt: 10, completion: 90, total: 100 });
+      expect(cb.mock.calls[0][0].state).toEqual({
+        prompt: 10,
+        completion: 90,
+        total: 100,
+      });
     });
 
     it("fires exceeded (not warning) when total exceeds limit", () => {

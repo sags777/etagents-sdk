@@ -41,7 +41,9 @@ describe("PrivacyFence", () => {
   describe("mask before turn", () => {
     it("replaces PII in message content", async () => {
       const fence = PrivacyFence.create(emailPrivacy());
-      const [masked] = await fence.maskMessages([userMsg("Email: user@example.com")]);
+      const [masked] = await fence.maskMessages([
+        userMsg("Email: user@example.com"),
+      ]);
       expect(masked.content).not.toContain("user@example.com");
       expect(masked.content).toMatch(/⟨eta:/);
     });
@@ -55,10 +57,7 @@ describe("PrivacyFence", () => {
 
     it("processes multiple messages independently", async () => {
       const fence = PrivacyFence.create(emailPrivacy());
-      const messages = [
-        userMsg("a@example.com"),
-        userMsg("b@example.com"),
-      ];
+      const messages = [userMsg("a@example.com"), userMsg("b@example.com")];
       const masked = await fence.maskMessages(messages);
       expect(masked[0].content).toMatch(/⟨eta:/);
       expect(masked[1].content).toMatch(/⟨eta:/);
@@ -68,8 +67,11 @@ describe("PrivacyFence", () => {
   describe("unmask after turn", () => {
     it("restores masked placeholder to original value", async () => {
       const fence = PrivacyFence.create(emailPrivacy());
-      const [masked] = await fence.maskMessages([userMsg("Contact: alice@corp.io")]);
-      const placeholder = masked.content.match(/⟨eta:[A-Z]+:[0-9a-f]+⟩/)?.[0] ?? "";
+      const [masked] = await fence.maskMessages([
+        userMsg("Contact: alice@corp.io"),
+      ]);
+      const placeholder =
+        masked.content.match(/⟨eta:[A-Z]+:[0-9a-f]+⟩/)?.[0] ?? "";
       const restored = await fence.unmaskText(`Reply to ${placeholder}`);
       expect(restored).toContain("alice@corp.io");
     });

@@ -4,8 +4,8 @@ import { PrivacyFence } from "../privacy-fence/privacy-fence.js";
 import { BudgetLedger } from "../budget-ledger/budget-ledger.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
-import { createAgent } from "../../agent/create-agent/create-agent.js";
-import { defineTool } from "../../agent/define-tool/define-tool.js";
+import { createAgent } from "../../agent/agent-builder.js";
+import { defineTool } from "../../agent/tool-builder.js";
 import type { TurnCycleContext } from "../../types/kernel.js";
 import type { RunState } from "../../types/run.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
@@ -27,12 +27,21 @@ function makeState(): RunState {
   return { messages: [], toolCallRecords: [], turns: 0 };
 }
 
+type TurnCycleContextOverrides = Partial<TurnCycleContext> & {
+  tools?: ReturnType<typeof defineTool>[];
+};
+
 async function makeCtx(
   model: MockModel,
-  overrides: Partial<TurnCycleContext> = {},
+  overrides: TurnCycleContextOverrides = {},
 ): Promise<TurnCycleContext> {
-  const tools = (overrides as { _tools?: ReturnType<typeof defineTool>[] })._tools ?? [];
-  const agent = createAgent({ name: "test", systemPrompt: "You help.", model, tools });
+  const { tools = [], ...contextOverrides } = overrides;
+  const agent = createAgent({
+    name: "test",
+    systemPrompt: "You help.",
+    model,
+    tools,
+  });
   const hub = makeHub();
   const registry = await ToolRegistry.build(agent, hub);
 
@@ -45,10 +54,11 @@ async function makeCtx(
     hooks: {},
     hitl: { mode: "none" },
     agentName: "test",
+    agentId: "test-agent-id",
     runId: "run-1",
     emit: vi.fn(),
     maxTokens: 100_000,
-    ...overrides,
+    ...contextOverrides,
   };
 }
 
@@ -107,12 +117,15 @@ describe("TurnCycle", () => {
         handler: async ({ msg }) => msg,
       });
       const model = MockModel.create([
-        { kind: "tools", calls: [{ id: "tc1", name: "echo", input: { msg: "hi" } }] },
+        {
+          kind: "tools",
+          calls: [{ id: "tc1", name: "echo", input: { msg: "hi" } }],
+        },
       ]);
       const state = makeState();
       state.messages.push({ role: "user", content: "say hi" });
 
-      const ctx = await makeCtx(model, { _tools: [echo] } as never);
+      const ctx = await makeCtx(model, { tools: [echo] });
       const result = await cycle.execute(state, ctx);
 
       expect(result.kind).toBe("continue");
@@ -126,12 +139,15 @@ describe("TurnCycle", () => {
         handler: async ({ msg }) => msg,
       });
       const model = MockModel.create([
-        { kind: "tools", calls: [{ id: "tc2", name: "echo", input: { msg: "ping" } }] },
+        {
+          kind: "tools",
+          calls: [{ id: "tc2", name: "echo", input: { msg: "ping" } }],
+        },
       ]);
       const state = makeState();
       state.messages.push({ role: "user", content: "ping" });
 
-      const ctx = await makeCtx(model, { _tools: [echo] } as never);
+      const ctx = await makeCtx(model, { tools: [echo] });
       await cycle.execute(state, ctx);
 
       const toolMsg = state.messages.find((m) => m.role === "tool");
@@ -169,14 +185,17 @@ describe("TurnCycle", () => {
         handler: async ({ msg }) => msg,
       });
       const model = MockModel.create([
-        { kind: "tools", calls: [{ id: "tc3", name: "echo", input: { msg: "hello" } }] },
+        {
+          kind: "tools",
+          calls: [{ id: "tc3", name: "echo", input: { msg: "hello" } }],
+        },
       ]);
       const state = makeState();
       state.messages.push({ role: "user", content: "do it" });
 
       const ctx = await makeCtx(model, {
         hitl: { mode: "tool" },
-        _tools: [echo],
+        tools: [echo],
       } as never);
       const result = await cycle.execute(state, ctx);
 

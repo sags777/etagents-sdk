@@ -1,8 +1,10 @@
-import { startRun } from "../../kernel/run/run.js";
+import { nanoid } from "nanoid";
+import { startRun } from "../../kernel/entry/start.js";
+import { PersistenceAdapter } from "../../kernel/persist/persistence-adapter.js";
 import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunResult, RunSummary } from "../../types/run.js";
+import type { RunConfig, RunResult } from "../../types/run.js";
 import { toRunSummary } from "../../types/run.js";
-import type { RoutingStrategy } from "../rule-router/rule-router.js";
+import type { RoutingStrategy } from "../strategies/rule/rule.js";
 
 // ---------------------------------------------------------------------------
 // AgentRouter
@@ -35,6 +37,7 @@ export class AgentRouter {
   constructor(
     private readonly agents: AgentDef[],
     private readonly strategy: RoutingStrategy,
+    private readonly adapter: PersistenceAdapter | undefined,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -70,18 +73,53 @@ export class AgentRouter {
     }
 
     const decision = await this.strategy.route(message);
-    const { assignments, confidence, reason } = decision;
+    const { assignments, confidence, reason, strategy } = decision;
 
     if (assignments.length === 0) {
-      throw new Error("AgentRouter: routing strategy returned an empty assignments array");
+      throw new Error(
+        "AgentRouter: routing strategy returned an empty assignments array",
+      );
+    }
+
+    // Persist routing decision — best-effort so fan-out is never blocked.
+    const decisionId = nanoid();
+    const decisionCreatedAt = new Date().toISOString();
+    if (this.adapter) {
+      try {
+        await this.adapter.saveRoutingDecision({
+          decisionId,
+          strategy,
+          inputMessage: message,
+          confidence,
+          reason,
+          assignments: assignments.map((a) => ({
+            agentName: a.agentDef.name,
+            parallel: a.parallel ?? false,
+          })),
+          createdAt: decisionCreatedAt,
+        });
+      } catch {
+        // Best-effort — persistence failures must not block routing
+      }
     }
 
     const emit = config.onEvent;
 
     // Emit agent_routed for each assignment
     for (const a of assignments) {
-      emit?.({ kind: "agent_routed", agentName: a.agentDef.name, confidence, reason });
+      emit?.({
+        kind: "agent_routed",
+        agentName: a.agentDef.name,
+        confidence,
+        reason,
+      });
     }
+
+    // Child run config includes routing lineage IDs
+    const childConfig: RunConfig = {
+      ...config,
+      routingDecisionId: decisionId,
+    };
 
     // Separate parallel from sequential
     const parallelAssignments = assignments.filter((a) => a.parallel);
@@ -90,8 +128,16 @@ export class AgentRouter {
     // Run parallel assignments concurrently
     const parallelResults = await Promise.all(
       parallelAssignments.map(async (a) => {
-        const result = await startRun(a.agentDef, a.subPrompt ?? message, config);
-        emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result: toRunSummary(result) });
+        const result = await startRun(
+          a.agentDef,
+          a.subPrompt ?? message,
+          childConfig,
+        );
+        emit?.({
+          kind: "agent_complete",
+          agentName: a.agentDef.name,
+          result: toRunSummary(result),
+        });
         return { name: a.agentDef.name, result };
       }),
     );
@@ -99,8 +145,16 @@ export class AgentRouter {
     // Run sequential assignments one-at-a-time
     const serialResults: Array<{ name: string; result: RunResult }> = [];
     for (const a of sequentialAssignments) {
-      const result = await startRun(a.agentDef, a.subPrompt ?? message, config);
-      emit?.({ kind: "agent_complete", agentName: a.agentDef.name, result: toRunSummary(result) });
+      const result = await startRun(
+        a.agentDef,
+        a.subPrompt ?? message,
+        childConfig,
+      );
+      emit?.({
+        kind: "agent_complete",
+        agentName: a.agentDef.name,
+        result: toRunSummary(result),
+      });
       serialResults.push({ name: a.agentDef.name, result });
     }
 
@@ -123,15 +177,15 @@ export class AgentRouter {
 // ---------------------------------------------------------------------------
 
 class AgentRouterBuilder {
-  private readonly _agents: AgentDef[] = [];
-  private _strategy: RoutingStrategy | undefined;
+  private readonly agents: AgentDef[] = [];
+  private strategy: RoutingStrategy | undefined;
 
   /**
    * Add an agent to the router's pool.
    * Agents must be added before calling `build()`.
    */
   add(agent: AgentDef): this {
-    this._agents.push(agent);
+    this.agents.push(agent);
     return this;
   }
 
@@ -140,17 +194,26 @@ class AgentRouterBuilder {
    * Must be called exactly once before `build()`.
    */
   withStrategy(strategy: RoutingStrategy): this {
-    this._strategy = strategy;
+    this.strategy = strategy;
     return this;
   }
 
   /**
    * Freeze the builder and return a ready-to-use {@link AgentRouter}.
+   *
+   * Automatically wires a `PersistenceAdapter` using the first registered
+   * agent's store for routing decision lineage. If no agents have been
+   * added yet, routing decisions will not be persisted.
    */
   build(): AgentRouter {
-    if (!this._strategy) {
-      throw new Error("AgentRouter: a strategy must be set via .withStrategy() before build()");
+    if (!this.strategy) {
+      throw new Error(
+        "AgentRouter: a strategy must be set via .withStrategy() before build()",
+      );
     }
-    return new AgentRouter([...this._agents], this._strategy);
+    const adapter = this.agents[0]?.store
+      ? new PersistenceAdapter(this.agents[0].store)
+      : undefined;
+    return new AgentRouter([...this.agents], this.strategy, adapter);
   }
 }

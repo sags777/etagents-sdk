@@ -1,6 +1,6 @@
 import type { Message, ToolCall } from "./message.js";
 import type { ToolCallRecord } from "./tool.js";
-import type { TokenUsage } from "../interfaces/model.js";
+import type { TokenUsage } from "../contracts/model.js";
 import type { BudgetConfig, BudgetEvent } from "./budget.js";
 import type { HitlConfig } from "./agent.js";
 import type { PendingApproval } from "./checkpoint.js";
@@ -40,10 +40,24 @@ export interface RunConfig {
   maxTokens?: number;
   budget?: BudgetConfig;
   hitl?: HitlConfig;
-  /** ISO-8601 string identifying this run for resumption */
+  /**
+   * @deprecated Run IDs are always kernel-generated for new runs. Setting this
+   * field on a new-run `RunConfig` has no effect. For resumption, the kernel
+   * reads the `runId` from the stored snapshot via `continueRun()` automatically.
+   */
   runId?: string;
   /** Extra metadata attached to the session snapshot */
   metadata?: Record<string, unknown>;
+  /**
+   * Routing lineage — set by `AgentRouter` when this run was dispatched as a
+   * child of a multi-agent routing decision. Never set by external callers.
+   */
+  routingDecisionId?: string;
+  /**
+   * Routing lineage — the `runId` of the originating parent run when dispatched
+   * via `AgentRouter`. Never set by external callers.
+   */
+  parentRunId?: string;
   /** AbortSignal — abort at any await point if signalled */
   signal?: AbortSignal;
   /** Optional event listener — receives RunEvents as they fire */
@@ -67,6 +81,22 @@ export interface RunResult {
   pendingApprovals?: PendingApproval[];
   /** Per-agent sub-results — populated by `AgentRouter.run()`. */
   agentResults?: Record<string, RunResult>;
+  /**
+   * Internal reason the turn loop stopped.
+   * Distinct from `status` — maps to `ExitCode` values but stored as string
+   * for forward-compat with future exit reasons without a breaking type change.
+   */
+  exitReason?: string;
+  /** Wall-clock milliseconds from run start to completion. */
+  durationMs?: number;
+  /** Milliseconds from run start to first model token received. */
+  firstTokenMs?: number;
+  /** Populated when `status === "error"` with the caught error message. */
+  errorMessage?: string;
+  /** Present when this run was spawned by an AgentRouter from a parent run. */
+  parentRunId?: string;
+  /** Foreign key to the RoutingDecisionRecord that dispatched this run. */
+  routingDecisionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +157,7 @@ export interface ToolCallEvent {
   kind: "tool_call";
   toolCall: ToolCall;
   agentName: string;
+  turn: number;
 }
 
 export interface ToolResultEvent {
@@ -134,7 +165,9 @@ export interface ToolResultEvent {
   toolCallId: string;
   result: string;
   isError: boolean;
+  isFromCache: boolean;
   durationMs: number;
+  turn: number;
 }
 
 export interface ErrorEvent {
@@ -148,7 +181,10 @@ export interface ErrorEvent {
  * Used by completion events so history (messages, toolCalls) never leaves the server.
  * toolCallCount is derived from toolCalls.length at emit time.
  */
-export type RunSummary = Omit<RunResult, "messages" | "toolCalls" | "agentResults"> & { toolCallCount: number };
+export type RunSummary = Omit<
+  RunResult,
+  "messages" | "toolCalls" | "agentResults"
+> & { toolCallCount: number };
 
 export function toRunSummary(result: RunResult): RunSummary {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

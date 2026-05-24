@@ -34,4 +34,16 @@ export interface SuspendSnapshot {
   session: SessionSnapshot;
   pendingApprovals: PendingApproval[];
   suspendedAt: string;
+  /** Name of the first tool that triggered the suspend. */
+  triggerToolName?: string;
+  /**
+   * ISO-8601 deadline after which this checkpoint should be considered expired.
+   * Defaults to `DEFAULT_HITL_TIMEOUT` ms after `suspendedAt` when not set explicitly.
+   */
+  expiresAt?: string;
+  /**
+   * How many times `continueRun` has been called against this checkpoint.
+   * Incremented by the kernel on each resume attempt.
+   */
+  resumeAttempts?: number;
 }

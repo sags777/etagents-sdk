@@ -1,4 +1,8 @@
-import type { StreamChunk, TokenUsage, FinishReason } from "../../interfaces/model.js";
+import type {
+  StreamChunk,
+  TokenUsage,
+  FinishReason,
+} from "../../contracts/model.js";
 import type { ToolCall } from "../../types/message.js";
 import type { Message } from "../../types/message.js";
 import type { TurnCycleContext } from "../../types/kernel.js";
@@ -8,11 +12,12 @@ import type { HitlConfig } from "../../types/agent.js";
 import type { PendingApproval } from "../../types/checkpoint.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import { safeHook } from "../lifecycle/lifecycle.js";
+import { safeHook } from "./safe-hook.js";
 import { routeToolTimed } from "../tool-router/tool-router.js";
 import type { TimedToolResult } from "../tool-router/tool-router.js";
 import type { ToolContext } from "../../types/tool.js";
 import { nanoid } from "nanoid";
+import { zeroUsage } from "../../providers/model/shared/stream.js";
 
 // ---------------------------------------------------------------------------
 // TurnResult — discriminated union returned by TurnCycle.execute()
@@ -34,10 +39,6 @@ interface CollectedTurn {
   usage: TokenUsage;
   finishReason: FinishReason;
   errorMsg?: string;
-}
-
-function zeroUsage(): TokenUsage {
-  return { prompt: 0, completion: 0, total: 0 };
 }
 
 async function collectStream(
@@ -62,7 +63,11 @@ async function collectStream(
         break;
 
       case "tool_start":
-        toolCalls.push({ id: chunk.toolCallId, name: chunk.toolName, args: {} });
+        toolCalls.push({
+          id: chunk.toolCallId,
+          name: chunk.toolName,
+          args: {},
+        });
         break;
 
       case "tool_end": {
@@ -91,12 +96,22 @@ async function collectStream(
   return { text, toolCalls, usage, finishReason, errorMsg };
 }
 
-function needsApproval(call: ToolCall, registry: ToolRegistry, hitl: HitlConfig): boolean {
-  if (hitl.mode === "none") return false;
-  if (hitl.mode === "tool") return true;
-  // sensitive mode — only tools marked sensitive: true
-  const def = registry.get(call.name);
-  return def?.sensitive === true;
+function needsApproval(
+  call: ToolCall,
+  registry: ToolRegistry,
+  hitl: HitlConfig,
+): boolean {
+  switch (hitl.mode) {
+    case "none":
+      return false;
+    case "tool":
+      return true;
+    case "sensitive":
+    case "callback": {
+      const def = registry.get(call.name);
+      return def?.sensitive === true;
+    }
+  }
 }
 
 /**
@@ -108,7 +123,10 @@ function needsApproval(call: ToolCall, registry: ToolRegistry, hitl: HitlConfig)
  * acted on. The most recent batch (after the last assistant message) is left
  * untouched so the model sees full fidelity for the turn it is reacting to.
  */
-export function compressStaleToolResults(messages: Message[], registry: ToolRegistry): void {
+function compressStaleToolResults(
+  messages: Message[],
+  registry: ToolRegistry,
+): void {
   // Build toolCallId → toolName map from every assistant message
   const callNameMap = new Map<string, string>();
   for (const msg of messages) {
@@ -126,13 +144,57 @@ export function compressStaleToolResults(messages: Message[], registry: ToolRegi
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (msg.role !== "tool" || i >= lastAssistantIdx || !msg.toolCallId) continue;
+    if (msg.role !== "tool" || i >= lastAssistantIdx || !msg.toolCallId)
+      continue;
     const toolName = callNameMap.get(msg.toolCallId);
     if (!toolName) continue;
     const trunc = registry.get(toolName)?.outputTruncation;
     if (!trunc || msg.content.length <= trunc.maxChars) continue;
-    msg.content = msg.content.slice(0, trunc.maxChars) + (trunc.suffix ?? "…[truncated]");
+    msg.content =
+      msg.content.slice(0, trunc.maxChars) + (trunc.suffix ?? "…[truncated]");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Payload builders — collapse repeated inline object literals
+// ---------------------------------------------------------------------------
+
+function buildToolCallEvent(
+  call: ToolCall,
+  agentName: string,
+  turn: number,
+): Extract<RunEvent, { kind: "tool_call" }> {
+  return { kind: "tool_call", toolCall: call, agentName, turn };
+}
+
+function buildToolResultEvent(
+  toolCallId: string,
+  content: string,
+  isError: boolean,
+  isFromCache: boolean,
+  durationMs: number,
+  turn: number,
+): Extract<RunEvent, { kind: "tool_result" }> {
+  return { kind: "tool_result", toolCallId, result: content, isError, isFromCache, durationMs, turn };
+}
+
+function buildToolCallRecord(
+  call: ToolCall,
+  timed: TimedToolResult,
+  agentName: string,
+  turn: number,
+): ToolCallRecord {
+  return {
+    id: call.id || nanoid(),
+    name: call.name,
+    args: call.args,
+    result: timed.result.content,
+    durationMs: timed.durationMs,
+    agentName,
+    turn,
+    isError: timed.result.isError,
+    isFromCache: timed.isFromCache,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +213,15 @@ export class TurnCycle {
     const turnNumber = state.turns + 1;
 
     // 1. onTurnStart hook
-    await safeHook(() => Promise.resolve(ctx.hooks.onTurnStart?.(turnNumber, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
+    await safeHook(() =>
+      Promise.resolve(
+        ctx.hooks.onTurnStart?.(turnNumber, {
+          agentName: ctx.agentName,
+          runId: ctx.runId,
+          turn: turnNumber,
+        }),
+      ),
+    );
     ctx.emit({ kind: "turn_start", turn: turnNumber });
 
     // 1b. Compress stale tool results from previous turns before sending to model.
@@ -183,7 +253,12 @@ export class TurnCycle {
     );
 
     // 4. Collect stream — emits text_delta / text_done via ctx.emit as chunks arrive
-    const collected = await collectStream(stream, ctx.signal, ctx.emit, turnNumber);
+    const collected = await collectStream(
+      stream,
+      ctx.signal,
+      ctx.emit,
+      turnNumber,
+    );
 
     if (collected.finishReason === "error") {
       throw new Error(collected.errorMsg ?? "Model returned an error response");
@@ -197,14 +272,23 @@ export class TurnCycle {
     ctx.ledger.checkAndEmit(ctx.maxTokens);
 
     // 7. onTurnEnd hook + emit
-    await safeHook(() => Promise.resolve(ctx.hooks.onTurnEnd?.(turnNumber, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
+    await safeHook(() =>
+      Promise.resolve(
+        ctx.hooks.onTurnEnd?.(turnNumber, {
+          agentName: ctx.agentName,
+          runId: ctx.runId,
+          turn: turnNumber,
+        }),
+      ),
+    );
     ctx.emit({ kind: "turn_end", turn: turnNumber, usage: collected.usage });
 
     // 8. Append assistant message
     state.messages.push({
       role: "assistant",
       content: response,
-      toolCalls: collected.toolCalls.length > 0 ? collected.toolCalls : undefined,
+      toolCalls:
+        collected.toolCalls.length > 0 ? collected.toolCalls : undefined,
     });
     state.turns = turnNumber;
 
@@ -235,6 +319,7 @@ export class TurnCycle {
     const toolContext: ToolContext = {
       runId: ctx.runId,
       agentName: ctx.agentName,
+      agentId: ctx.agentId,
       messages: state.messages,
       store: ctx.store,
       metadata: ctx.metadata,
@@ -243,7 +328,7 @@ export class TurnCycle {
     // Emit tool_call (→ tool.invoke) for each call before dispatch so clients
     // see the intent immediately even if execution takes seconds.
     for (const call of collected.toolCalls) {
-      ctx.emit({ kind: "tool_call", toolCall: call, agentName: ctx.agentName });
+      ctx.emit(buildToolCallEvent(call, ctx.agentName, turnNumber));
     }
 
     const timedResults = await dispatchToolCalls(
@@ -254,15 +339,26 @@ export class TurnCycle {
     );
 
     // 13. Fire hooks + append tool results
-    for (const { result, durationMs } of timedResults) {
-      await safeHook(() => Promise.resolve(ctx.hooks.onToolResult?.(result, { agentName: ctx.agentName, runId: ctx.runId, turn: turnNumber })));
-      ctx.emit({
-        kind: "tool_result",
-        toolCallId: result.toolCallId,
-        result: result.content,
-        isError: result.isError,
-        durationMs,
-      });
+    for (const { result, durationMs, isFromCache } of timedResults) {
+      await safeHook(() =>
+        Promise.resolve(
+          ctx.hooks.onToolResult?.(result, {
+            agentName: ctx.agentName,
+            runId: ctx.runId,
+            turn: turnNumber,
+          }),
+        ),
+      );
+      ctx.emit(
+        buildToolResultEvent(
+          result.toolCallId,
+          result.content,
+          result.isError,
+          isFromCache,
+          durationMs,
+          turnNumber,
+        ),
+      );
       state.messages.push({
         role: "tool",
         content: result.content,
@@ -274,15 +370,9 @@ export class TurnCycle {
     for (const call of collected.toolCalls) {
       const timed = timedResults.find((r) => r.result.toolCallId === call.id);
       if (timed) {
-        const record: ToolCallRecord = {
-          id: call.id || nanoid(),
-          name: call.name,
-          args: call.args,
-          result: timed.result.content,
-          durationMs: timed.durationMs,
-          agentName: ctx.agentName,
-        };
-        state.toolCallRecords.push(record);
+        state.toolCallRecords.push(
+          buildToolCallRecord(call, timed, ctx.agentName, turnNumber),
+        );
       }
     }
 

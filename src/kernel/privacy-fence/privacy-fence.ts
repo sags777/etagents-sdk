@@ -1,4 +1,8 @@
-import type { PrivacyProvider, PrivacyMap, EncryptedMap } from "../../interfaces/privacy.js";
+import type {
+  PrivacyProvider,
+  PrivacyMap,
+  EncryptedMap,
+} from "../../contracts/privacy.js";
 import type { Message } from "../../types/message.js";
 
 // ---------------------------------------------------------------------------

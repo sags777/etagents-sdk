@@ -1,5 +1,5 @@
 /**
- * @module @etagents/sdk/interfaces
+ * @module @etagents/sdk/contracts
  *
  * Provider contracts — stable, frozen, zero dependencies.
  * Implementors build against these; the kernel consumes them.

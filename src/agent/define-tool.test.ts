@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
-import { defineTool } from "./define-tool.js";
-import { executeTool } from "../executor/executor.js";
-import type { ToolContext } from "../../types/tool.js";
+import { defineTool } from "./tool-builder.js";
+import { executeTool } from "./tool-executor.js";
+import type { ToolContext } from "../types/tool.js";
 
 // ---------------------------------------------------------------------------
 // Shared test context
@@ -68,7 +68,8 @@ describe("defineTool", () => {
     });
 
     await tool.handler({ value: 42 });
-    expect(spy).toHaveBeenCalledWith({ value: 42 });
+    // context is undefined when not passed — handler receives (args, undefined)
+    expect(spy).toHaveBeenCalledWith({ value: 42 }, undefined);
   });
 
   it("produces a handler that throws ToolError on invalid args", async () => {
@@ -146,4 +147,94 @@ describe("executeTool", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain("timed out");
   }, 2000);
+});
+
+// ---------------------------------------------------------------------------
+// defineTool — cache config and TTL normalization
+// ---------------------------------------------------------------------------
+
+describe("defineTool — cache TTL normalization", () => {
+  it("converts ttl (seconds) to ttlMs (milliseconds)", () => {
+    const tool = defineTool({
+      name: "cached-seconds",
+      description: "uses ttl in seconds",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: true, ttl: 60 },
+    });
+
+    expect(tool.cache?.ttlMs).toBe(60_000);
+  });
+
+  it("passes ttlMs through directly when no ttl is set", () => {
+    const tool = defineTool({
+      name: "cached-ms",
+      description: "uses ttlMs directly",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: true, ttlMs: 5_000 },
+    });
+
+    expect(tool.cache?.ttlMs).toBe(5_000);
+  });
+
+  it("ttl (seconds) takes precedence over ttlMs when both are provided", () => {
+    const tool = defineTool({
+      name: "cached-both",
+      description: "both ttl and ttlMs set",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: true, ttl: 10, ttlMs: 5_000 },
+    });
+
+    // ttl: 10s → 10_000ms, not the 5_000 from ttlMs
+    expect(tool.cache?.ttlMs).toBe(10_000);
+  });
+
+  it("ttlMs is undefined when neither ttl nor ttlMs is set", () => {
+    const tool = defineTool({
+      name: "cached-no-ttl",
+      description: "cache enabled but no TTL",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: true },
+    });
+
+    expect(tool.cache?.ttlMs).toBeUndefined();
+  });
+
+  it("cache is undefined when not configured", () => {
+    const tool = defineTool({
+      name: "no-cache",
+      description: "no cache at all",
+      params: z.object({}),
+      handler: async () => "result",
+    });
+
+    expect(tool.cache).toBeUndefined();
+  });
+
+  it("cache.enabled is preserved in the output ToolDef", () => {
+    const tool = defineTool({
+      name: "enabled-cache",
+      description: "cache enabled",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: true, ttlMs: 1_000 },
+    });
+
+    expect(tool.cache?.enabled).toBe(true);
+  });
+
+  it("cache.enabled false is preserved in the output ToolDef", () => {
+    const tool = defineTool({
+      name: "disabled-cache",
+      description: "cache disabled",
+      params: z.object({}),
+      handler: async () => "result",
+      cache: { enabled: false },
+    });
+
+    expect(tool.cache?.enabled).toBe(false);
+  });
 });

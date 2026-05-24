@@ -23,7 +23,11 @@ export interface StoreProvider {
    * Write a value for a key.
    * Atomic per key. Optional TTL via `options.ttlMs`.
    */
-  write<T = unknown>(key: string, value: T, options?: WriteOptions): Promise<void>;
+  write<T = unknown>(
+    key: string,
+    value: T,
+    options?: WriteOptions,
+  ): Promise<void>;
 
   /**
    * Remove a key.

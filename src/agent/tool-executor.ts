@@ -1,5 +1,5 @@
-import type { ToolDef, ToolContext, ToolExecResult } from "../../types/tool.js";
-import { DEFAULT_CONFIG } from "../../config.js";
+import type { ToolDef, ToolContext, ToolExecResult } from "../types/tool.js";
+import { DEFAULT_CONFIG } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // executeTool

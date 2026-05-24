@@ -31,4 +31,10 @@ export interface Message {
   toolCalls?: ToolCall[];
   /** Present when role is "tool" — links this result back to the call */
   toolCallId?: string;
+  /**
+   * Surrogate identifier for this message.
+   * Optional for backward compat — the kernel generates one on construction
+   * when persisting to a normalized backend.
+   */
+  messageId?: string;
 }

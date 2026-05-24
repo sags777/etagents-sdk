@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { StoreProvider } from "../interfaces/store.js";
+import type { StoreProvider } from "../contracts/store.js";
 import type { Message } from "./message.js";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,12 @@ export interface ToolCallRecord {
   result: string;
   durationMs: number;
   agentName: string;
+  /** 1-based turn number when this tool call was executed. */
+  turn?: number;
+  /** True when the tool handler threw or returned an error sentinel. */
+  isError: boolean;
+  /** True when the result was served from the kernel tool-result cache. */
+  isFromCache?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +119,8 @@ export interface ToolCallRecord {
 export interface ToolContext {
   runId: string;
   agentName: string;
+  /** Stable agent identity for persistence-scoped behaviors such as caching. */
+  agentId?: string;
   /** Read-only snapshot of the current message history */
   messages: readonly Message[];
   metadata?: Record<string, unknown>;

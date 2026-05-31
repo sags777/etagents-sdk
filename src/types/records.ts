@@ -195,6 +195,10 @@ export interface MemoryEntryRecord {
   namespace: string;
   userId?: string;
   text: string;
+  /** Semantic category of this memory entry. */
+  kind?: string;
+  /** Confidence score in [0, 1] — starts at 1.0, decays over time, boosted on reinforcement. */
+  confidence?: number;
   /** e.g. "text-embedding-3-small" */
   embeddingModel?: string;
   /** Dimensionality of the stored embedding vector. */
@@ -206,6 +210,8 @@ export interface MemoryEntryRecord {
   metadata?: Record<string, unknown>;
   /** ISO-8601 — optional expiry for ephemeral memory entries. */
   expiresAt?: string;
+  /** ISO-8601 — when this entry was last indexed or reinforced. */
+  updatedAt?: string;
   /** ISO-8601 */
   indexedAt: string;
 }

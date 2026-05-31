@@ -6,6 +6,29 @@ import { MockModel } from "../../providers/model/mock/mock.js";
 import { InMemory } from "../../providers/memory/in-memory/in-memory.js";
 import { RegexPrivacy } from "../../providers/privacy/regex-privacy/regex-privacy.js";
 import { z } from "zod";
+import type { StoreProvider } from "../../contracts/store.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeMemoryStore(): StoreProvider {
+  const map = new Map<string, unknown>();
+  return {
+    async read<T>(key: string): Promise<T | null> {
+      return (map.get(key) ?? null) as T | null;
+    },
+    async write<T>(key: string, value: T): Promise<void> {
+      map.set(key, value);
+    },
+    async remove(key: string): Promise<void> {
+      map.delete(key);
+    },
+    async list(prefix: string): Promise<string[]> {
+      return [...map.keys()].filter((k) => k.startsWith(prefix));
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,5 +220,95 @@ describe("startRun", () => {
     expect(["complete", "cancelled", "budget_exceeded"]).toContain(
       result.status,
     );
+  });
+
+  describe("lifecycle hooks — beforeRun / afterRun", () => {
+    it("calls beforeRun before the run with input and hook context", async () => {
+      const calls: Array<{ input: string; agentName: string; turn: number }> =
+        [];
+      const model = MockModel.create([{ kind: "text", content: "Done" }]);
+
+      await startRun(
+        createAgent({
+          name: "hook-agent",
+          systemPrompt: "You help.",
+          model,
+          hooks: {
+            beforeRun: (input, ctx) => {
+              calls.push({ input, agentName: ctx.agentName, turn: ctx.turn });
+            },
+          },
+        }),
+        "test input",
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].input).toBe("test input");
+      expect(calls[0].agentName).toBe("hook-agent");
+      expect(calls[0].turn).toBe(0);
+    });
+
+    it("calls afterRun after the run with result and hook context", async () => {
+      const calls: Array<{ response: string; agentName: string }> = [];
+      const model = MockModel.create([{ kind: "text", content: "Hello!" }]);
+
+      await startRun(
+        createAgent({
+          name: "hook-agent",
+          systemPrompt: "You help.",
+          model,
+          hooks: {
+            afterRun: (result, ctx) => {
+              calls.push({ response: result.response, agentName: ctx.agentName });
+            },
+          },
+        }),
+        "hello",
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].response).toBe("Hello!");
+      expect(calls[0].agentName).toBe("hook-agent");
+    });
+
+    it("propagates beforeRun errors — run does not complete silently", async () => {
+      const model = MockModel.create([{ kind: "text", content: "Never" }]);
+
+      await expect(
+        startRun(
+          createAgent({
+            name: "agent",
+            systemPrompt: "You help.",
+            model,
+            hooks: {
+              beforeRun: async () => {
+                throw new Error("pre-flight failed");
+              },
+            },
+          }),
+          "hi",
+        ),
+      ).rejects.toThrow("pre-flight failed");
+    });
+
+    it("propagates afterRun errors — caller receives the error", async () => {
+      const model = MockModel.create([{ kind: "text", content: "Done" }]);
+
+      await expect(
+        startRun(
+          createAgent({
+            name: "agent",
+            systemPrompt: "You help.",
+            model,
+            hooks: {
+              afterRun: async () => {
+                throw new Error("post-run failed");
+              },
+            },
+          }),
+          "hi",
+        ),
+      ).rejects.toThrow("post-run failed");
+    });
   });
 });

@@ -33,6 +33,7 @@ export type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
+  MemoryKind,
 } from "./memory.js";
 
 export type {

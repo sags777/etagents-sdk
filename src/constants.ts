@@ -31,6 +31,13 @@ export const STORE_KEYS = {
 export const MCP_NAMESPACE_SEPARATOR = "mcp__";
 
 // ---------------------------------------------------------------------------
+// Snapshot
+// ---------------------------------------------------------------------------
+
+/** Key under which extracted insights are stored in `RunRecord.metadata`. */
+export const SNAPSHOT_INSIGHTS_KEY = "insights" as const;
+
+// ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
 

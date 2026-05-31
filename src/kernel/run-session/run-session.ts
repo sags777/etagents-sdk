@@ -10,12 +10,11 @@ import type {
 } from "../../types/run.js";
 import type {
   ApprovalDecision,
-  PendingApproval,
   SuspendSnapshot,
 } from "../../types/checkpoint.js";
 import type { Message } from "../../types/message.js";
 import type { ToolContext } from "../../types/tool.js";
-import type { SnapshotMeta } from "../../types/session.js";
+import type { SessionInsights } from "../../types/session.js";
 import type { RunContext, RunSessionStatus } from "../../types/kernel.js";
 import type { MemoryScope } from "../../contracts/memory.js";
 import type { RunEventRecord } from "../../types/records.js";
@@ -25,11 +24,11 @@ import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import { PrivacyFence } from "../privacy-fence/privacy-fence.js";
 import { MemoryPipe } from "../memory-pipe/memory-pipe.js";
 import { BudgetLedger } from "../budget-ledger/budget-ledger.js";
-import { TurnCycle } from "../turn-cycle/turn-cycle.js";
 import { PersistenceAdapter } from "../persist/persistence-adapter.js";
 import { exitCodeToStatus } from "./exit-code.js";
+import { runLoop } from "./run-loop.js";
+import { sessionInsight } from "./session-insight.js";
 import { applyDecisions } from "../entry/apply-decisions.js";
-import { runInsight } from "../../insight/extractor/extractor.js";
 import { toRunSummary } from "../../types/run.js";
 import { CheckpointError } from "../../errors.js";
 
@@ -134,6 +133,9 @@ export class RunSession {
       scope,
       agent.model,
       agent.insight?.hypothesize,
+      agent.memoryRetrieval.minScore,
+      agent.memoryRetrieval.topK,
+      agent.memoryRetrieval.budget,
     );
     const controller = new AbortController();
     const rawEmit: (event: RunEvent) => void = onEvent ?? (() => undefined);
@@ -238,6 +240,7 @@ export class RunSession {
     exitCode: ExitCode,
     durationMs: number,
     createdAt: string,
+    insights?: SessionInsights,
   ): Promise<RunResult> {
     this.messageLog = state.messages;
     this.lifecycleStatus = exitCode === "ABORT" ? "ABORTED" : "COMPLETED";
@@ -254,9 +257,18 @@ export class RunSession {
         agentSystemPrompt: this.agent.systemPrompt,
         agentModelProvider: this.agent.modelProvider,
         agentModelId: this.agent.modelId,
+        insights,
       }),
     );
     emit({ kind: "complete", result: toRunSummary(runResult) });
+    // afterRun hook — errors propagate (not wrapped in safeHook)
+    if (this.agent.hooks.afterRun) {
+      await this.agent.hooks.afterRun(runResult, {
+        agentName: this.agent.name,
+        runId: this.ctx.runId,
+        turn: runResult.turns,
+      });
+    }
     return runResult;
   }
 
@@ -289,100 +301,6 @@ export class RunSession {
       store: this.agent.store,
       metadata: this.ctx.metadata,
     };
-  }
-
-  private async runLoop(
-    state: RunState,
-    emit: (event: RunEvent) => void,
-  ): Promise<{
-    lastResponse: string;
-    exitCode: ExitCode;
-    pendingApprovals?: PendingApproval[];
-  }> {
-    const cycle = new TurnCycle();
-    const tcCtx = this.buildTurnCycleContext(emit);
-    let lastResponse = "";
-    let exitCode: ExitCode = "COMPLETE";
-
-    loop: while (state.turns < this.ctx.maxTurns) {
-      if (this.effectiveSignal.aborted) {
-        exitCode = "ABORT";
-        break;
-      }
-
-      const result = await cycle.execute(state, tcCtx);
-
-      switch (result.kind) {
-        case "done":
-          lastResponse = result.response;
-          exitCode = "COMPLETE";
-          break loop;
-
-        case "budget":
-          lastResponse = result.lastResponse;
-          exitCode = "BUDGET";
-          break loop;
-
-        case "suspend":
-          if (this.agent.hitl.mode === "callback" && this.agent.hitl.onApprove) {
-            const decisions = await this.agent.hitl.onApprove(
-              result.pendingApprovals,
-            );
-            await applyDecisions(
-              result.pendingApprovals,
-              decisions,
-              state,
-              this.registry,
-              this.hub,
-              this.buildToolContext(state.messages),
-            );
-            continue loop;
-          }
-          // Default suspend — return pending approvals to the caller
-          exitCode = "SUSPEND";
-          return {
-            lastResponse,
-            exitCode,
-            pendingApprovals: result.pendingApprovals,
-          };
-
-        case "continue":
-          // loop continues
-          break;
-      }
-    }
-
-    if (exitCode === "COMPLETE" && state.turns >= this.ctx.maxTurns) {
-      exitCode = "MAX_TURNS";
-    }
-
-    return { lastResponse, exitCode };
-  }
-
-  private async runInsight(state: RunState): Promise<SnapshotMeta> {
-    const insightCfg = this.agent.insight;
-    if (!insightCfg || Object.keys(insightCfg).length === 0) return {};
-    try {
-      const result = await runInsight(
-        state.messages,
-        this.agent.model,
-        insightCfg,
-        state.turns,
-      );
-      const toIndex = insightCfg.injectSummaryOnly
-        ? result.summary
-          ? [result.summary]
-          : []
-        : [...result.facts, ...result.userFacts];
-      this.pipe.index(toIndex);
-      return {
-        facts: result.facts,
-        userFacts: result.userFacts,
-        summary: result.summary,
-      };
-    } catch {
-      return {};
-    }
   }
 
   private buildRunResult(
@@ -433,6 +351,15 @@ export class RunSession {
     const emit = this.wrapEmitForTelemetry();
 
     try {
+      // beforeRun hook — errors propagate (not wrapped in safeHook)
+      if (this.agent.hooks.beforeRun) {
+        await this.agent.hooks.beforeRun(input, {
+          agentName: this.agent.name,
+          runId: this.ctx.runId,
+          turn: 0,
+        });
+      }
+
       // Memory retrieval — inject relevant context into system prompt
       const memories = await this.pipe.retrieve(input);
       let systemPrompt = this.agent.systemPrompt;
@@ -454,10 +381,16 @@ export class RunSession {
 
       const state: RunState = { messages, toolCallRecords: [], turns: 0 };
 
-      const { lastResponse, exitCode, pendingApprovals } = await this.runLoop(
+      const { lastResponse, exitCode, pendingApprovals } = await runLoop({
         state,
-        emit,
-      );
+        tcCtx: this.buildTurnCycleContext(emit),
+        maxTurns: this.ctx.maxTurns,
+        signal: this.effectiveSignal,
+        hitl: this.agent.hitl,
+        registry: this.registry,
+        hub: this.hub,
+        buildToolContext: (messages) => this.buildToolContext(messages),
+      });
       this.messageLog = state.messages;
 
       const durationMs = Date.now() - this.startTimeMs;
@@ -506,8 +439,8 @@ export class RunSession {
       }
 
       // Post-run insight
-      await this.runInsight(state);
-      return this.finalizeRun(emit, lastResponse, state, exitCode, durationMs, this.createdAt);
+      const insights = await sessionInsight(state, this.agent, this.pipe);
+      return this.finalizeRun(emit, lastResponse, state, exitCode, durationMs, this.createdAt, insights);
     } catch (err) {
       this.lifecycleStatus = "ERROR";
       throw err;
@@ -586,12 +519,21 @@ export class RunSession {
       // Remove the suspended run checkpoint — replaced by the completed run record below
       await this.tryPersist(() => this.adapter.removeSuspendedRun(checkpointId));
 
-      const { lastResponse, exitCode } = await this.runLoop(state, emit);
+      const { lastResponse, exitCode } = await runLoop({
+        state,
+        tcCtx: this.buildTurnCycleContext(emit),
+        maxTurns: this.ctx.maxTurns,
+        signal: this.effectiveSignal,
+        hitl: this.agent.hitl,
+        registry: this.registry,
+        hub: this.hub,
+        buildToolContext: (messages) => this.buildToolContext(messages),
+      });
       const durationMs = Date.now() - this.startTimeMs;
 
-      // Index memory (fire-and-forget)
-      this.pipe.index([]);
-      return this.finalizeRun(emit, lastResponse, state, exitCode, durationMs, snapshot.session.createdAt);
+      // Post-resume insight
+      const insights = await sessionInsight(state, this.agent, this.pipe);
+      return this.finalizeRun(emit, lastResponse, state, exitCode, durationMs, snapshot.session.createdAt, insights);
     } catch (err) {
       this.lifecycleStatus = "ERROR";
       throw err;

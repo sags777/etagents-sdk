@@ -7,10 +7,34 @@ import type { PrivacyMap } from "../contracts/privacy.js";
 // ---------------------------------------------------------------------------
 
 /**
+ * SessionInsights — consumer-readable extracted insights from a run.
+ *
+ * Stored in `RunRecord.metadata` under the `"insights"` key.
+ */
+export interface SessionInsights {
+  facts: string[];
+  userFacts: string[];
+  summary: string;
+  topics: string[];
+}
+
+/**
+ * KernelMeta — kernel-private bookkeeping stored inside the snapshot.
+ *
+ * Never expose these fields to end users.
+ */
+export interface KernelMeta {
+  privacyMap?: PrivacyMap;
+  tokenUsage?: TokenUsage;
+  /** SHA-256 of the AgentConfig used to produce this snapshot */
+  configFingerprint?: string;
+}
+
+/**
  * SessionSnapshot — the full serialisable state for a run.
  *
- * Stored under `runId` in the StoreProvider. The `__eta` key holds
- * internal bookkeeping that the kernel reads back on resume.
+ * `insights` holds consumer-readable extracted facts, summaries, and topics.
+ * `_kernel` holds internal bookkeeping that the kernel reads back on resume.
  */
 export interface SessionSnapshot {
   version: 1;
@@ -19,20 +43,8 @@ export interface SessionSnapshot {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
-  __eta: SnapshotMeta;
-}
-
-/**
- * SnapshotMeta — internal bookkeeping stored inside the snapshot.
- *
- * Never expose these fields to the end user; they are kernel-private.
- */
-export interface SnapshotMeta {
-  facts?: string[];
-  userFacts?: string[];
-  summary?: string;
-  privacyMap?: PrivacyMap;
-  tokenUsage?: TokenUsage;
-  /** Hash of the AgentConfig used to produce this snapshot */
-  configFingerprint?: string;
+  /** Consumer-readable extracted insights. */
+  insights: SessionInsights;
+  /** Kernel-private bookkeeping — never surface to consumers. */
+  _kernel: KernelMeta;
 }

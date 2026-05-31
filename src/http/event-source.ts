@@ -1,5 +1,5 @@
-import type { CompleteEvent } from "../../types/run.js";
-import type { BudgetEvent } from "../../types/budget.js";
+import type { CompleteEvent } from "../types/run.js";
+import type { BudgetEvent } from "../types/budget.js";
 import type {
   TurnStartEvent,
   TurnEndEvent,
@@ -8,13 +8,13 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
   ErrorEvent,
-} from "../../types/run.js";
+} from "../types/run.js";
 
 // ---------------------------------------------------------------------------
 // ReadyState
 // ---------------------------------------------------------------------------
 
-/** Human-readable alias for the connection state. */
+/** Alias for the connection state. */
 export type ReadyState = "connecting" | "open" | "closed";
 
 // ---------------------------------------------------------------------------
@@ -39,19 +39,19 @@ export interface SessionEventSourceOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Typed event map
+// EtaEventMap — typed SSE event map
 // ---------------------------------------------------------------------------
 
 /**
- * EtaEventMap — maps SSE wire event names to their payload types.
+ * Maps SSE wire event names to their payload types.
  *
- * `run.status`  → turn_start, turn_end, warning, exceeded events
+ * `run.status`     → turn_start, turn_end, warning, exceeded events
  * `run.text.delta` → text_delta events
  * `run.text.done`  → text_done events
- * `tool.invoke` → tool_call event
- * `tool.result` → tool_result event
- * `run.error`   → error event
- * `run.done`    → complete event (carries the full RunResult)
+ * `tool.invoke`    → tool_call event
+ * `tool.result`    → tool_result event
+ * `run.error`      → error event
+ * `run.done`       → complete event (carries the full RunResult)
  */
 export interface EtaEventMap {
   "run.status": TurnStartEvent | TurnEndEvent | BudgetEvent;
@@ -73,19 +73,18 @@ export interface EtaEventMap {
 // Internal async queue — backs the async iterator
 // ---------------------------------------------------------------------------
 
-interface QueuedItem {
+interface QueueItem {
   event: string;
   data: unknown;
 }
 
 class EventQueue {
-  private readonly items: QueuedItem[] = [];
-  private readonly resolvers: Array<
-    (item: IteratorResult<QueuedItem>) => void
-  > = [];
+  private readonly items: QueueItem[] = [];
+  private readonly resolvers: Array<(item: IteratorResult<QueueItem>) => void> =
+    [];
   private done = false;
 
-  push(item: QueuedItem): void {
+  push(item: QueueItem): void {
     const resolve = this.resolvers.shift();
     if (resolve) {
       resolve({ value: item, done: false });
@@ -97,18 +96,18 @@ class EventQueue {
   finish(): void {
     this.done = true;
     for (const resolve of this.resolvers.splice(0)) {
-      resolve({ value: undefined as unknown as QueuedItem, done: true });
+      resolve({ value: undefined as unknown as QueueItem, done: true });
     }
   }
 
-  next(): Promise<IteratorResult<QueuedItem>> {
+  next(): Promise<IteratorResult<QueueItem>> {
     const item = this.items.shift();
     if (item !== undefined) {
       return Promise.resolve({ value: item, done: false });
     }
     if (this.done) {
       return Promise.resolve({
-        value: undefined as unknown as QueuedItem,
+        value: undefined as unknown as QueueItem,
         done: true,
       });
     }
@@ -119,7 +118,7 @@ class EventQueue {
 }
 
 // ---------------------------------------------------------------------------
-// SSE parser — builds a stateful line-by-line parser
+// SSE parser
 // ---------------------------------------------------------------------------
 
 type DispatchFn = (event: string, data: string) => void;
@@ -130,11 +129,9 @@ function createSseParser(dispatch: DispatchFn): (line: string) => void {
 
   return (line: string) => {
     if (line === "") {
-      // Blank line → dispatch
       if (dataLines.length > 0) {
         dispatch(currentEvent, dataLines.join("\n"));
       }
-      // Reset for next event
       currentEvent = "message";
       dataLines = [];
       return;
@@ -189,7 +186,6 @@ export class SessionEventSource {
   constructor(url: string, options: SessionEventSourceOptions = {}) {
     this.ctrl = new AbortController();
 
-    // Chain caller's signal to our controller
     if (options.signal) {
       options.signal.addEventListener("abort", () => this.ctrl.abort(), {
         once: true,
@@ -280,11 +276,9 @@ export class SessionEventSource {
     this.readyStateValue = "open";
     this.dispatch("open", undefined);
 
-    // Decode bytes → lines → SSE events
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let remainder = "";
-
     let doneEvent: CompleteEvent | undefined;
 
     const dispatchParsed = (eventName: string, rawData: string) => {
@@ -312,7 +306,6 @@ export class SessionEventSource {
 
         const chunk = remainder + decoder.decode(value, { stream: true });
         const lines = chunk.split("\n");
-        // Last segment may be incomplete — save for next read
         remainder = lines.pop() ?? "";
 
         for (const line of lines) {
@@ -320,7 +313,6 @@ export class SessionEventSource {
         }
       }
 
-      // Flush any remainder
       if (remainder) parseLine(remainder);
     } catch (err) {
       if ((err as { name?: string }).name !== "AbortError") {

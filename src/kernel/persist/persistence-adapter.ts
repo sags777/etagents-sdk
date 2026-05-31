@@ -54,6 +54,7 @@ import {
   runEventsKey,
   agentPromptKey,
 } from "../keys.js";
+import { SNAPSHOT_INSIGHTS_KEY } from "../../constants.js";
 
 // ---------------------------------------------------------------------------
 // Message serialization helpers
@@ -272,6 +273,11 @@ export class PersistenceAdapter {
     const now = new Date().toISOString();
     const { result } = params;
 
+    const metadata: Record<string, unknown> = { ...params.metadata };
+    if (params.insights) {
+      metadata[SNAPSHOT_INSIGHTS_KEY] = params.insights;
+    }
+
     const runRecord: RunRecord = {
       runId: params.runId,
       agentId: params.agentId,
@@ -289,7 +295,7 @@ export class PersistenceAdapter {
       modelId: params.agentModelId,
       errorMessage: result.errorMessage,
       checkpointId: result.checkpointId,
-      metadata: params.metadata,
+      metadata,
       createdAt: params.createdAt,
       updatedAt: now,
     };
@@ -406,7 +412,8 @@ export class PersistenceAdapter {
         metadata: {},
         createdAt: checkpoint.suspendedAt,
         updatedAt: now,
-        __eta: {},
+        insights: { facts: [], userFacts: [], summary: "", topics: [] },
+        _kernel: {},
       },
       pendingApprovals: approvalRecords.map(recordToPending),
       suspendedAt: checkpoint.suspendedAt,

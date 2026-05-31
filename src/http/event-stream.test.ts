@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { SessionEventStream, SSE_HEADERS } from "./event-stream.js";
-import { createAgent } from "../../agent/agent-builder.js";
-import { MockModel } from "../../providers/model/mock/mock.js";
+import { createAgent } from "../agent/agent-builder.js";
+import { MockModel } from "../providers/model/mock/mock.js";
 
 // ---------------------------------------------------------------------------
-// Helper — collect all SSE frames from a ReadableStream
+// Test helpers
 // ---------------------------------------------------------------------------
 
 async function collectFrames(
@@ -22,7 +22,6 @@ async function collectFrames(
   return parts.join("");
 }
 
-/** Parse all "event: <name>" lines from raw SSE text. */
 function parseEventNames(raw: string): string[] {
   return raw
     .split("\n")
@@ -30,7 +29,6 @@ function parseEventNames(raw: string): string[] {
     .map((l) => l.slice("event: ".length).trim());
 }
 
-/** Parse all data payloads as JSON objects. */
 function parseDataObjects(raw: string): unknown[] {
   return raw
     .split("\n")
@@ -64,51 +62,35 @@ describe("SSE_HEADERS", () => {
 
 describe("SessionEventStream", () => {
   describe("stream()", () => {
-    it("emits run.done event for a complete text run", async () => {
+    it("emits run.done for a complete text run", async () => {
       const model = MockModel.create([{ kind: "text", content: "All done." }]);
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
-      const raw = await collectFrames(ses.stream("Hello"));
-      const names = parseEventNames(raw);
+      const names = parseEventNames(await collectFrames(ses.stream("Hello")));
 
       expect(names).toContain("run.done");
     });
 
-    it("emits run.status events for turn_start and turn_end", async () => {
+    it("emits at least two run.status events (turn_start + turn_end)", async () => {
       const model = MockModel.create([{ kind: "text", content: "ok" }]);
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
-      const raw = await collectFrames(ses.stream("Hello"));
-      const names = parseEventNames(raw);
+      const names = parseEventNames(await collectFrames(ses.stream("Hello")));
 
-      expect(
-        names.filter((n) => n === "run.status").length,
-      ).toBeGreaterThanOrEqual(2);
+      expect(names.filter((n) => n === "run.status").length).toBeGreaterThanOrEqual(2);
     });
 
     it("each SSE frame has both event: and data: lines", async () => {
       const model = MockModel.create([{ kind: "text", content: "hi" }]);
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
-      const raw = await collectFrames(ses.stream("Hello"));
+      const blocks = (await collectFrames(ses.stream("Hello")))
+        .split("\n\n")
+        .filter((b) => b.trim().length > 0);
 
-      // Each event block ends with a blank line
-      const blocks = raw.split("\n\n").filter((b) => b.trim().length > 0);
       for (const block of blocks) {
         expect(block).toMatch(/^event: /m);
         expect(block).toMatch(/^data: /m);
@@ -117,15 +99,10 @@ describe("SessionEventStream", () => {
 
     it("data payloads are valid JSON", async () => {
       const model = MockModel.create([{ kind: "text", content: "done" }]);
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
-      const raw = await collectFrames(ses.stream("Hello"));
-      const objects = parseDataObjects(raw);
+      const objects = parseDataObjects(await collectFrames(ses.stream("Hello")));
 
       expect(objects.length).toBeGreaterThan(0);
       for (const obj of objects) {
@@ -133,15 +110,9 @@ describe("SessionEventStream", () => {
       }
     });
 
-    it("run.done data contains the run result", async () => {
-      const model = MockModel.create([
-        { kind: "text", content: "Final answer." },
-      ]);
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+    it("run.done payload has kind: complete", async () => {
+      const model = MockModel.create([{ kind: "text", content: "Final answer." }]);
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
@@ -149,25 +120,43 @@ describe("SessionEventStream", () => {
       const doneIdx = lines.findIndex((l) => l === "event: run.done");
       expect(doneIdx).toBeGreaterThanOrEqual(0);
 
-      const dataLine = lines[doneIdx + 1];
-      expect(dataLine).toMatch(/^data: /);
-      const payload = JSON.parse(dataLine.slice("data: ".length));
+      const payload = JSON.parse(lines[doneIdx + 1].slice("data: ".length));
       expect(payload.kind).toBe("complete");
     });
 
-    it("emits run.error when the agent model errors", async () => {
+    it("stream closes without hanging when model errors", async () => {
       const model = MockModel.create([{ kind: "error", message: "API down" }]);
-      // An error finish still completes the run (status=error or complete)
-      // so we just verify the stream closes without hanging
-      const agent = createAgent({
-        name: "a",
-        systemPrompt: "You help.",
-        model,
-      });
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
       const ses = new SessionEventStream(agent);
 
       const raw = await collectFrames(ses.stream("Hello"));
       expect(raw.length).toBeGreaterThan(0);
+    });
+
+    it("pre-send events are flushed as the first SSE frames", async () => {
+      const model = MockModel.create([{ kind: "text", content: "hi" }]);
+      const agent = createAgent({ name: "a", systemPrompt: "You help.", model });
+      const ses = new SessionEventStream(agent);
+
+      ses.send("run_id", { runId: "abc123" });
+      const raw = await collectFrames(ses.stream("Hello"));
+      const names = parseEventNames(raw);
+
+      expect(names[0]).toBe("run_id");
+    });
+  });
+
+  describe("resume()", () => {
+    it("throws when target is an AgentRouter", async () => {
+      const { AgentRouter } = await import("../orchestration/agent-router/agent-router.js");
+      const { RuleRouter } = await import("../orchestration/strategies/rule/rule.js");
+      const model = MockModel.create([{ kind: "text", content: "hi" }]);
+      const agent = createAgent({ name: "a", systemPrompt: "s", model });
+      const strategy = new RuleRouter().when(/./, agent).build();
+      const router = AgentRouter.create().add(agent).withStrategy(strategy).build();
+      const ses = new SessionEventStream(router);
+
+      expect(() => ses.resume("id", [])).toThrow("not supported for AgentRouter");
     });
   });
 });

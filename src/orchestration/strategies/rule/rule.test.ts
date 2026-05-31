@@ -31,6 +31,7 @@ function makeAgent(name: string, systemPrompt = `You are ${name}.`): AgentDef {
     mcp: [],
     maxTurns: 10,
     maxTokens: 4096,
+    memoryRetrieval: { minScore: 0.7 },
   } as AgentDef;
 }
 

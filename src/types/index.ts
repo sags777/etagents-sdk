@@ -43,7 +43,7 @@ export type {
   HookContext,
 } from "./agent.js";
 
-export type { SessionSnapshot, SnapshotMeta } from "./session.js";
+export type { SessionSnapshot, SessionInsights, KernelMeta } from "./session.js";
 
 export type {
   SuspendSnapshot,

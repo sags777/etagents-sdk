@@ -2,6 +2,7 @@ import { type RedisClientType } from "redis";
 import type {
   MemoryProvider,
   MemoryEntry,
+  MemoryKind,
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
@@ -104,12 +105,16 @@ export class RedisMemory implements MemoryProvider {
     // Must not throw — per MemoryProvider contract
     try {
       const vec = await this.embedder.embed(entry.text);
+      const now = new Date().toISOString();
       await this.client.hSet(this.entryKey(entry.scope, entry.id), {
         id: entry.id,
         agentId: entry.scope.agentId,
         scopeNs: entry.scope.namespace,
         userId: entry.scope.userId ?? "",
         text: entry.text,
+        kind: entry.kind ?? "",
+        confidence: String(entry.confidence ?? 1.0),
+        updatedAt: entry.updatedAt ?? now,
         metadata: JSON.stringify(entry.metadata ?? {}),
         vector: packFloat32(vec),
       });
@@ -154,7 +159,7 @@ export class RedisMemory implements MemoryProvider {
           SORTBY: { BY: "__dist" },
           LIMIT: { from: 0, size: limit },
           DIALECT: 2,
-          RETURN: ["id", "text", "metadata", "__dist"],
+          RETURN: ["id", "text", "metadata", "kind", "confidence", "updatedAt", "__dist"],
         },
       )) as { documents: Array<{ value: Record<string, string> }> };
 
@@ -169,6 +174,9 @@ export class RedisMemory implements MemoryProvider {
           id: v.id,
           text: v.text,
           score,
+          ...(v.kind ? { kind: v.kind as MemoryKind } : {}),
+          ...(v.confidence ? { confidence: parseFloat(v.confidence) } : {}),
+          ...(v.updatedAt ? { updatedAt: v.updatedAt } : {}),
           metadata: v.metadata
             ? (JSON.parse(v.metadata) as Record<string, unknown>)
             : undefined,
@@ -230,6 +238,7 @@ export class RedisMemory implements MemoryProvider {
           agentId: { type: "TAG" },
           scopeNs: { type: "TAG" },
           userId: { type: "TAG" },
+          kind: { type: "TAG" },
           text: { type: "TEXT" },
           vector: {
             type: "VECTOR",

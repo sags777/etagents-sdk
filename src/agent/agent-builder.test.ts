@@ -10,7 +10,7 @@ import { z } from "zod";
 // AgentDef output shape
 // ---------------------------------------------------------------------------
 
-describe("createAgent — output shape", () => {
+describe("createAgent - output shape", () => {
   it("returns a frozen object", () => {
     const model = MockModel.create([]);
     const def = createAgent({ name: "test", systemPrompt: "help", model });
@@ -68,7 +68,7 @@ describe("createAgent — output shape", () => {
 // Default fallbacks
 // ---------------------------------------------------------------------------
 
-describe("createAgent — default fallbacks", () => {
+describe("createAgent - default fallbacks", () => {
   it("defaults tools to empty array when omitted", () => {
     const model = MockModel.create([]);
     const def = createAgent({ name: "agent", systemPrompt: "help", model });
@@ -138,7 +138,7 @@ describe("createAgent — default fallbacks", () => {
 // Model shorthand resolution
 // ---------------------------------------------------------------------------
 
-describe("createAgent — model resolution", () => {
+describe("createAgent - model resolution", () => {
   it("throws ModelError for an unrecognized model string", () => {
     expect(() =>
       createAgent({
@@ -201,8 +201,6 @@ describe("createAgent — model resolution", () => {
   });
 
   it("uses DEFAULT_CONFIG.defaultModel when model is omitted (resolves to a provider)", () => {
-    // No model provided — should resolve using DEFAULT_CONFIG.defaultModel
-    // This exercises the else branch: typeof model !== "string" path with undefined fallback
     const def = createAgent({ name: "agent", systemPrompt: "help" });
     expect(typeof def.model.stream).toBe("function");
   });
@@ -212,7 +210,7 @@ describe("createAgent — model resolution", () => {
 // No-op provider defaults
 // ---------------------------------------------------------------------------
 
-describe("createAgent — no-op provider defaults", () => {
+describe("createAgent - no-op provider defaults", () => {
   it("memory.search returns empty array", async () => {
     const model = MockModel.create([]);
     const def = createAgent({ name: "agent", systemPrompt: "help", model });

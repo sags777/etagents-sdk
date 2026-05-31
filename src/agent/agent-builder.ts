@@ -243,6 +243,11 @@ export class Agent {
 
       maxTurns: config.maxTurns ?? DEFAULT_CONFIG.maxTurns,
       maxTokens: config.maxTokens ?? DEFAULT_CONFIG.maxTokens,
+      memoryRetrieval: {
+        minScore: config.memoryRetrieval?.minScore ?? DEFAULT_CONFIG.memoryMinScore,
+        topK: config.memoryRetrieval?.topK,
+        budget: config.memoryRetrieval?.budget,
+      },
       toolTruncation: config.toolTruncation,
     };
   }

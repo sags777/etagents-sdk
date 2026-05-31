@@ -1,5 +1,5 @@
 import type { ModelProvider } from "../contracts/model.js";
-import type { MemoryProvider } from "../contracts/memory.js";
+import type { MemoryProvider, MemoryKind } from "../contracts/memory.js";
 import type { StoreProvider } from "../contracts/store.js";
 import type { PrivacyProvider } from "../contracts/privacy.js";
 import type { ToolDef } from "./tool.js";
@@ -7,6 +7,7 @@ import type { Message, ToolCall, ToolResult } from "./message.js";
 import type { InsightConfig } from "./insight.js";
 import type { McpServerConfig } from "./mcp.js";
 import type { PendingApproval, ApprovalDecision } from "./checkpoint.js";
+import type { RunResult } from "./run.js";
 
 // ---------------------------------------------------------------------------
 // HITL config
@@ -51,13 +52,28 @@ export interface HookContext {
 }
 
 export interface LifecycleHooks {
+  /**
+   * Called before memory retrieval and the first model turn.
+   * Errors propagate and abort the run — suitable for critical pre-flight checks.
+   */
+  beforeRun?: (input: string, context: HookContext) => void | Promise<void>;
+  /**
+   * Called after the run completes and results are persisted.
+   * Errors propagate to the caller — suitable for critical post-run side effects.
+   */
+  afterRun?: (result: RunResult, context: HookContext) => void | Promise<void>;
+  /** Best-effort hook invoked before each model turn. */
   onTurnStart?: (turn: number, context: HookContext) => void | Promise<void>;
+  /** Best-effort hook invoked after each model turn. */
   onTurnEnd?: (turn: number, context: HookContext) => void | Promise<void>;
+  /** Reserved hook slot — declared but not currently invoked by the runtime. */
   onToolCall?: (call: ToolCall, context: HookContext) => void | Promise<void>;
+  /** Best-effort hook invoked after each tool result is produced. */
   onToolResult?: (
     result: ToolResult,
     context: HookContext,
   ) => void | Promise<void>;
+  /** Reserved hook slot — declared but not currently invoked by the runtime. */
   beforeComplete?: (
     messages: Message[],
     context: HookContext,
@@ -97,6 +113,34 @@ export interface AgentConfig {
 
   maxTurns?: number;
   maxTokens?: number;
+  /**
+   * Retrieval policy for long-term memory injection.
+   *
+   * Controls how retrieved memories are filtered and budgeted before being
+   * appended to the system prompt. All fields are optional — omitting the
+   * object entirely applies defaults.
+   *
+   * @example
+   * memoryRetrieval: { minScore: 0.8, topK: { fact: 10, user_fact: 5 }, budget: 2000 }
+   */
+  memoryRetrieval?: {
+    /**
+     * Minimum similarity score (0–1) a match must reach to be included.
+     * Defaults to `DEFAULT_CONFIG.memoryMinScore`.
+     */
+    minScore?: number;
+    /**
+     * Per-kind retrieval limits applied after search and optional reranking.
+     * Keys are `MemoryKind` values; values are the maximum number of entries
+     * of that kind to include. Unspecified kinds are uncapped.
+     */
+    topK?: Partial<Record<MemoryKind, number>>;
+    /**
+     * Maximum total characters of memory text injected into the system prompt.
+     * Entries are included in score order until the budget is exhausted.
+     */
+    budget?: number;
+  };
   /**
    * Per-tool output truncation overrides, keyed by tool name.
    * Primarily used to limit large MCP tool outputs (e.g. DOM snapshots) in
@@ -147,6 +191,15 @@ export interface AgentDef {
 
   maxTurns: number;
   maxTokens: number;
+  /**
+   * Resolved retrieval policy — `minScore` is always set (default applied in builder).
+   * `topK` and `budget` are optional (no cap when absent).
+   */
+  memoryRetrieval: {
+    minScore: number;
+    topK?: Partial<Record<MemoryKind, number>>;
+    budget?: number;
+  };
   /** Per-tool output truncation overrides — see AgentConfig.toolTruncation. */
   toolTruncation?: Record<string, { maxChars: number; suffix?: string }>;
 }

@@ -1,14 +1,12 @@
-import type { RunEvent } from "../../types/run.js";
+import type { RunEvent } from "../types/run.js";
 
 // ---------------------------------------------------------------------------
 // Shared SSE encoding helpers used by SessionEventStream
 // ---------------------------------------------------------------------------
 
-export const encoder = new TextEncoder();
+const encoder = new TextEncoder();
 
-/**
- * Maps a RunEvent to its SSE dot-notation event name.
- */
+/** Maps a RunEvent to its SSE dot-notation event name. */
 export function toSseName(event: RunEvent): string {
   switch (event.kind) {
     case "turn_start":
@@ -51,9 +49,9 @@ export function encodeError(message: string): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * createDeltaBuffer — returns an `onEvent` handler and a `flush` function
- * that coalesce rapid single-character `text_delta` SSE frames into larger
- * chunks before writing to the wire.
+ * Returns an `onEvent` handler and a `flush` function that coalesce rapid
+ * single-character `text_delta` SSE frames into larger chunks before writing
+ * to the wire.
  *
  * Flush strategy (whichever fires first):
  *   - Word/sentence boundary: the incoming delta ends with `\s . , ! ?`
@@ -61,20 +59,6 @@ export function encodeError(message: string): Uint8Array {
  *
  * All non-`text_delta` events drain the buffer immediately so event ordering
  * on the wire is preserved.
- *
- * Usage:
- * ```ts
- * const { onEvent, flush } = createDeltaBuffer(ctrl, externalOnEvent);
- * try {
- *   await startRun(agent, input, { ...config, onEvent });
- * } catch (err) {
- *   flush();
- *   ctrl.enqueue(encodeError(...));
- * } finally {
- *   flush();          // drain any remaining buffer
- *   ctrl.close();
- * }
- * ```
  */
 export function createDeltaBuffer(
   ctrl: ReadableStreamDefaultController<Uint8Array>,

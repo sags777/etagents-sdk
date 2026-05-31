@@ -1,10 +1,6 @@
-import {
-  SessionEventStream,
-  SSE_HEADERS,
-} from "../../event-stream/event-stream.js";
-import type { StreamOptions } from "../../stream-options.js";
-import type { AgentDef } from "../../../types/agent.js";
-import type { RunConfig } from "../../../types/run.js";
+import { SessionEventStream, SSE_HEADERS } from "../event-stream.js";
+import type { StreamOptions } from "../stream-options.js";
+import type { AgentDef } from "../../types/agent.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Next.js App Router type surface
@@ -20,19 +16,17 @@ export interface NextRouteRequest {
 export type NextRouteHandler = (req: NextRouteRequest) => Promise<Response>;
 
 // ---------------------------------------------------------------------------
-// NextResponseOptions — mirrors StreamOptions with response-level controls
+// NextResponseOptions
 // ---------------------------------------------------------------------------
 
 /**
- * NextResponseOptions — all options accepted by `toNextResponse()`.
+ * Options for `toNextResponse()` and `toNextHandler()`.
  *
- * Mirrors `StreamOptions` and adds HTTP response-level controls so callers can
- * add custom headers or override the status code without wrapping in a second
- * `new Response()`.
+ * Extends `StreamOptions` (adds `onEvent` hook support) with response-level
+ * controls so callers can inject custom headers or override the status code
+ * without wrapping in a second `new Response()`.
  */
-export interface NextResponseOptions {
-  /** Per-stream configuration — mirrors RunConfig minus the onEvent slot. */
-  config?: Omit<RunConfig, "onEvent">;
+export interface NextResponseOptions extends StreamOptions {
   /** Extra HTTP headers merged with `SSE_HEADERS`. */
   headers?: Record<string, string>;
   /** HTTP status code. Defaults to 200. */
@@ -57,13 +51,11 @@ export interface NextResponseOptions {
  */
 export function toNextHandler(
   agent: AgentDef,
-  options?: StreamOptions,
+  options?: NextResponseOptions,
 ): NextRouteHandler {
   return async (req: NextRouteRequest): Promise<Response> => {
     const input = await req.text();
-    const eventStream = new SessionEventStream(agent);
-    const body = eventStream.stream(input, options);
-    return new Response(body, { headers: SSE_HEADERS });
+    return toNextResponse(new SessionEventStream(agent), input, options);
   };
 }
 
@@ -80,12 +72,12 @@ export function toNextHandler(
  *
  * ```ts
  * export async function POST(req: Request) {
- *   const { prompt, runId } = await req.json();
+ *   const { prompt, clientRequestId } = await req.json();
  *   const stream = new SessionEventStream(agent);
- *   stream.send("run_id", { runId });   // push run ID before kernel starts
+ *   stream.send("request_id", { clientRequestId });
  *   return toNextResponse(stream, prompt, {
- *     config: { runId, signal: req.signal },
- *     headers: { "X-Run-Id": runId },
+ *     config: { signal: req.signal, metadata: { clientRequestId } },
+ *     headers: { "X-Request-Id": clientRequestId },
  *   });
  * }
  * ```

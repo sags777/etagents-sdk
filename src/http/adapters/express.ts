@@ -1,9 +1,6 @@
-import {
-  SessionEventStream,
-  SSE_HEADERS,
-} from "../../event-stream/event-stream.js";
-import type { AgentDef } from "../../../types/agent.js";
-import type { RunConfig } from "../../../types/run.js";
+import { SessionEventStream, SSE_HEADERS } from "../event-stream.js";
+import type { StreamOptions } from "../stream-options.js";
+import type { AgentDef } from "../../types/agent.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Express type surface
@@ -29,19 +26,17 @@ export type ExpressHandler = (
 ) => void;
 
 // ---------------------------------------------------------------------------
-// ExpressHandlerOptions — mirrors StreamOptions with response-level controls
+// ExpressHandlerOptions
 // ---------------------------------------------------------------------------
 
 /**
- * ExpressHandlerOptions — all options accepted by `toExpressHandler()`.
+ * Options for `toExpressHandler()`.
  *
- * Mirrors `StreamOptions` and adds extra response headers merged on top of
- * `SSE_HEADERS` so callers can inject CORS, tracing, or custom headers
- * without wrapping the handler.
+ * Extends `StreamOptions` (adds `onEvent` hook support) with response-level
+ * controls so callers can inject CORS, tracing, or custom headers without
+ * wrapping the handler.
  */
-export interface ExpressHandlerOptions {
-  /** Per-stream configuration — mirrors RunConfig minus the onEvent slot. */
-  config?: Omit<RunConfig, "onEvent">;
+export interface ExpressHandlerOptions extends StreamOptions {
   /** Extra HTTP headers merged with `SSE_HEADERS`. */
   headers?: Record<string, string>;
 }

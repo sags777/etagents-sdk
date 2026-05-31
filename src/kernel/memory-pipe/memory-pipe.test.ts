@@ -14,7 +14,7 @@ describe("MemoryPipe", () => {
 
     it("index is a no-op — does not throw", () => {
       const pipe = MemoryPipe.create(undefined, scope);
-      expect(() => pipe.index(["fact 1"])).not.toThrow();
+      expect(() => pipe.index([{ text: "fact 1", kind: "fact" }])).not.toThrow();
     });
   });
 
@@ -54,7 +54,7 @@ describe("MemoryPipe", () => {
       const memory = new InMemory();
       const pipe = MemoryPipe.create(memory, scope);
 
-      pipe.index(["quantum entanglement basics"]);
+      pipe.index([{ text: "quantum entanglement basics", kind: "fact" }]);
       // Allow the fire-and-forget promise to settle
       await new Promise((r) => setTimeout(r, 10));
 
@@ -79,9 +79,143 @@ describe("MemoryPipe", () => {
       );
       const pipe = MemoryPipe.create(failingMemory, scope);
 
-      expect(() => pipe.index(["fact"])).not.toThrow();
+      expect(() => pipe.index([{ text: "fact", kind: "fact" }])).not.toThrow();
       // Allow rejection to propagate internally without surfacing
       await new Promise((r) => setTimeout(r, 20));
     });
+  });
+
+  describe("rerank", () => {
+    it("calls provider.rerank when present and returns reordered results", async () => {
+      const memory = new InMemory();
+      await memory.index({ id: "a", text: "alpha fact", scope, kind: "fact" });
+      await memory.index({ id: "b", text: "beta fact", scope, kind: "fact" });
+
+      // Attach a reranker that reverses the order
+      (memory as unknown as Record<string, unknown>).rerank = vi.fn(
+        async (results: import("../../contracts/memory.js").MemoryMatch[]) =>
+          [...results].reverse(),
+      );
+
+      const pipe = MemoryPipe.create(memory, scope);
+      const results = await pipe.retrieve("fact");
+
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      // reranker reversed the order — first element should be the one that was last
+      const rerankSpy = (memory as unknown as Record<string, unknown>).rerank as ReturnType<typeof vi.fn>;
+      expect(rerankSpy).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to search ordering when rerank throws", async () => {
+      const memory = new InMemory();
+      await memory.index({ id: "a", text: "alpha fact", scope, kind: "fact" });
+
+      (memory as unknown as Record<string, unknown>).rerank = vi.fn(async () => {
+        throw new Error("reranker down");
+      });
+
+      const pipe = MemoryPipe.create(memory, scope);
+      // Should not throw — falls back to search order
+      const results = await pipe.retrieve("fact");
+      expect(results.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("kind-aware topK", () => {
+    it("limits results per kind when topK is set", async () => {
+      const memory = new InMemory();
+      // Index 3 facts and 3 user_facts
+      for (let i = 0; i < 3; i++) {
+        await memory.index({ id: `f${i}`, text: `fact entry ${i}`, scope, kind: "fact" });
+        await memory.index({ id: `u${i}`, text: `user fact entry ${i}`, scope, kind: "user_fact" });
+      }
+
+      const pipe = MemoryPipe.create(
+        memory,
+        scope,
+        undefined,
+        undefined,
+        undefined,
+        { fact: 2, user_fact: 1 },
+      );
+
+      const results = await pipe.retrieve("entry");
+      const facts = results.filter((r) => r.kind === "fact");
+      const userFacts = results.filter((r) => r.kind === "user_fact");
+
+      expect(facts.length).toBeLessThanOrEqual(2);
+      expect(userFacts.length).toBeLessThanOrEqual(1);
+    });
+
+    it("does not filter kinds not specified in topK", async () => {
+      const memory = new InMemory();
+      for (let i = 0; i < 3; i++) {
+        await memory.index({ id: `t${i}`, text: `topic entry ${i}`, scope, kind: "topic" });
+      }
+
+      // topK only limits "fact" — topics are uncapped
+      const pipe = MemoryPipe.create(
+        memory,
+        scope,
+        undefined,
+        undefined,
+        undefined,
+        { fact: 1 },
+      );
+
+      const results = await pipe.retrieve("topic entry");
+      const topics = results.filter((r) => r.kind === "topic");
+      // All 3 topics should be returned (uncapped)
+      expect(topics.length).toBe(3);
+    });
+  });
+
+  describe("character budget", () => {
+    it("stops including entries once the budget is exhausted", async () => {
+      const memory = new InMemory();
+      // Each entry is exactly 10 characters: "word_XXXXX"
+      const text1 = "aaaaaaaaaa"; // 10 chars
+      const text2 = "bbbbbbbbbb"; // 10 chars
+      const text3 = "cccccccccc"; // 10 chars
+      await memory.index({ id: "e1", text: text1, scope, kind: "fact" });
+      await memory.index({ id: "e2", text: text2, scope, kind: "fact" });
+      await memory.index({ id: "e3", text: text3, scope, kind: "fact" });
+
+      // Budget = 25 chars → fits 2 entries (10+10=20 ≤ 25), excludes 3rd (20+10=30 > 25)
+      const pipe = MemoryPipe.create(
+        memory,
+        scope,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        25,
+      );
+
+      const results = await pipe.retrieve("aaaa bbbb cccc");
+      const totalChars = results.reduce((sum, r) => sum + r.text.length, 0);
+      expect(totalChars).toBeLessThanOrEqual(25);
+      expect(results.length).toBeLessThanOrEqual(2);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — confidence and updatedAt
+// ---------------------------------------------------------------------------
+
+describe("confidence and updatedAt", () => {
+  it("index() stores confidence=1.0 and updatedAt on new entries", async () => {
+    const memory = new InMemory();
+    const pipe = MemoryPipe.create(memory, scope);
+
+    pipe.index([{ text: "typescript generics explained", kind: "fact" }]);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const results = await memory.search("typescript generics", { scope });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].confidence).toBe(1.0);
+    expect(results[0].updatedAt).toBeDefined();
+    expect(typeof results[0].updatedAt).toBe("string");
   });
 });

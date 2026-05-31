@@ -19,6 +19,7 @@ import type {
 import type { RunResult } from "../../types/run.js";
 import type { Message } from "../../types/message.js";
 import type { PendingApproval } from "../../types/checkpoint.js";
+import type { SessionInsights } from "../../types/session.js";
 
 // ---------------------------------------------------------------------------
 // Individual repository interfaces
@@ -116,6 +117,8 @@ export interface SaveRunParams {
   events: RunEventRecord[];
   /** The agent's system prompt text (used for content-addressed deduplication). */
   agentSystemPrompt?: string;
+  /** Extracted insight data to persist alongside the run record. */
+  insights?: SessionInsights;
 }
 
 /** Parameters for persisting a HITL-suspended run. */

@@ -120,7 +120,13 @@ export class InMemory implements MemoryProvider {
       if (this.embedder) {
         vector = await this.embedder.embed(entry.text);
       }
-      this.store.set(entry.id, { ...entry, indexedAt: Date.now(), vector });
+      this.store.set(entry.id, {
+        ...entry,
+        indexedAt: Date.now(),
+        vector,
+        confidence: entry.confidence ?? 1.0,
+        updatedAt: entry.updatedAt ?? new Date().toISOString(),
+      });
     } catch {
       // Swallow silently
     }
@@ -162,6 +168,9 @@ export class InMemory implements MemoryProvider {
           id: entry.id,
           text: entry.text,
           score,
+          kind: entry.kind,
+          confidence: entry.confidence,
+          updatedAt: entry.updatedAt,
           metadata: entry.metadata,
         });
       }

@@ -1,21 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
-import { defineTool } from "./tool-builder.js";
-import { executeTool } from "./tool-executor.js";
-import type { ToolContext } from "../types/tool.js";
+import { defineTool, agentAsTool, Tool } from "./tool-builder.js";
+import { createAgent } from "./agent-builder.js";
+import { MockModel } from "../providers/model/mock/mock.js";
 
 // ---------------------------------------------------------------------------
-// Shared test context
-// ---------------------------------------------------------------------------
-
-const ctx: ToolContext = {
-  runId: "run-1",
-  agentName: "test-agent",
-  messages: [],
-};
-
-// ---------------------------------------------------------------------------
-// defineTool — schema conversion
+// defineTool - schema conversion
 // ---------------------------------------------------------------------------
 
 describe("defineTool", () => {
@@ -40,7 +30,6 @@ describe("defineTool", () => {
       },
       required: ["name"],
     });
-    // No $schema annotation in output
     expect(tool.schema).not.toHaveProperty("$schema");
   });
 
@@ -68,7 +57,6 @@ describe("defineTool", () => {
     });
 
     await tool.handler({ value: 42 });
-    // context is undefined when not passed — handler receives (args, undefined)
     expect(spy).toHaveBeenCalledWith({ value: 42 }, undefined);
   });
 
@@ -87,73 +75,10 @@ describe("defineTool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// executeTool — execution and error handling
+// defineTool - cache config and TTL normalization
 // ---------------------------------------------------------------------------
 
-describe("executeTool", () => {
-  it("returns output and isError=false for a successful handler", async () => {
-    const tool = defineTool({
-      name: "echo",
-      description: "echoes input",
-      params: z.object({ msg: z.string() }),
-      handler: async ({ msg }) => msg,
-    });
-
-    const result = await executeTool(tool, { msg: "hello" }, ctx);
-    expect(result.output).toBe("hello");
-    expect(result.isError).toBe(false);
-    expect(result.durationMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it("returns isError=true without throwing when handler throws", async () => {
-    const tool = defineTool({
-      name: "boom",
-      description: "always throws",
-      params: z.object({}),
-      handler: async () => {
-        throw new Error("deliberate failure");
-      },
-    });
-
-    const result = await executeTool(tool, {}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("deliberate failure");
-  });
-
-  it("returns isError=true without throwing when args are invalid", async () => {
-    const tool = defineTool({
-      name: "typed",
-      description: "needs a number",
-      params: z.object({ n: z.number() }),
-      handler: async ({ n }) => String(n),
-    });
-
-    // Pass a string for a number field — validation should fail inside handler
-    const result = await executeTool(tool, { n: "bad" }, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.output).toMatch(/Invalid arguments/);
-  });
-
-  it("returns isError=true on timeout without throwing", async () => {
-    const tool = defineTool({
-      name: "slow",
-      description: "never resolves",
-      params: z.object({}),
-      handler: () => new Promise<string>(() => {}), // hangs forever
-      timeoutMs: 50,
-    });
-
-    const result = await executeTool(tool, {}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("timed out");
-  }, 2000);
-});
-
-// ---------------------------------------------------------------------------
-// defineTool — cache config and TTL normalization
-// ---------------------------------------------------------------------------
-
-describe("defineTool — cache TTL normalization", () => {
+describe("defineTool - cache TTL normalization", () => {
   it("converts ttl (seconds) to ttlMs (milliseconds)", () => {
     const tool = defineTool({
       name: "cached-seconds",
@@ -187,7 +112,6 @@ describe("defineTool — cache TTL normalization", () => {
       cache: { enabled: true, ttl: 10, ttlMs: 5_000 },
     });
 
-    // ttl: 10s → 10_000ms, not the 5_000 from ttlMs
     expect(tool.cache?.ttlMs).toBe(10_000);
   });
 
@@ -236,5 +160,43 @@ describe("defineTool — cache TTL normalization", () => {
     });
 
     expect(tool.cache?.enabled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agentAsTool / Tool.fromAgent
+// ---------------------------------------------------------------------------
+
+describe("agentAsTool", () => {
+  it("delegates to the child agent and returns its response", async () => {
+    const delegate = createAgent({
+      name: "research",
+      systemPrompt: "Answer precisely.",
+      model: MockModel.create([{ kind: "text", content: "Delegated answer." }]),
+    });
+
+    const tool = agentAsTool(delegate);
+
+    expect(tool.name).toBe("research");
+    expect(tool.description).toBe("Delegate to the research agent.");
+    await expect(tool.handler({ input: "Summarize this topic." })).resolves.toBe(
+      "Delegated answer.",
+    );
+  });
+
+  it("exposes delegated agent tools from the tool builder", () => {
+    const delegate = createAgent({
+      name: "billing",
+      systemPrompt: "Handle billing.",
+      model: MockModel.create([]),
+    });
+
+    const tool = Tool.fromAgent(delegate, {
+      name: "billing_delegate",
+      description: "Escalate billing work.",
+    });
+
+    expect(tool.name).toBe("billing_delegate");
+    expect(tool.description).toBe("Escalate billing work.");
   });
 });

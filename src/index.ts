@@ -36,6 +36,7 @@ export type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
+  MemoryKind,
 } from "./contracts/index.js";
 
 export type { StoreProvider, WriteOptions } from "./contracts/index.js";
@@ -85,7 +86,7 @@ export type {
   HookContext,
 } from "./types/index.js";
 
-export type { SessionSnapshot, SnapshotMeta } from "./types/index.js";
+export type { SessionSnapshot, SessionInsights, KernelMeta } from "./types/index.js";
 export type {
   SuspendSnapshot,
   PendingApproval,

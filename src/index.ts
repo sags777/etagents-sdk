@@ -28,7 +28,7 @@ export type {
   ToolDeltaChunk,
   ToolEndChunk,
   FinishChunk,
-} from "./contracts/index.js";
+} from "./types/contracts/index.js";
 
 export type {
   MemoryProvider,
@@ -37,27 +37,27 @@ export type {
   MemorySearchOptions,
   MemoryMatch,
   MemoryKind,
-} from "./contracts/index.js";
+} from "./types/contracts/index.js";
 
-export type { StoreProvider, WriteOptions } from "./contracts/index.js";
+export type { StoreProvider, WriteOptions } from "./types/contracts/index.js";
 
 export type {
   PrivacyProvider,
   PrivacyMap,
   MaskResult,
   EncryptedMap,
-} from "./contracts/index.js";
+} from "./types/contracts/index.js";
 
 // ── Types (domain types) ───────────────────────────────────────────
 
-export type { Role, Message, ToolCall, ToolResult } from "./types/index.js";
+export type { Role, Message, ToolCall, ToolResult } from "./types/domain/index.js";
 
 export type {
   JsonSchema,
   JsonSchemaType,
   ToolDef,
   ToolCallRecord,
-} from "./types/index.js";
+} from "./types/domain/index.js";
 
 export type {
   RunStatus,
@@ -76,7 +76,7 @@ export type {
   RunState,
   AgentRoutedEvent,
   AgentCompleteEvent,
-} from "./types/index.js";
+} from "./types/domain/index.js";
 
 export type {
   HitlConfig,
@@ -84,22 +84,22 @@ export type {
   AgentConfig,
   AgentDef,
   HookContext,
-} from "./types/index.js";
+} from "./types/domain/index.js";
 
-export type { SessionSnapshot, SessionInsights, KernelMeta } from "./types/index.js";
+export type { SessionSnapshot, SessionInsights, KernelMeta } from "./types/domain/index.js";
 export type {
   SuspendSnapshot,
   PendingApproval,
   ApprovalDecision,
-} from "./types/index.js";
-export type { BudgetConfig, BudgetState, BudgetEvent } from "./types/index.js";
-export type { McpServerConfig, McpHandle, McpToolDef } from "./types/index.js";
-export type { InsightConfig, InsightResult } from "./types/index.js";
+} from "./types/domain/index.js";
+export type { BudgetConfig, BudgetState, BudgetEvent } from "./types/domain/index.js";
+export type { McpServerConfig, McpHandle, McpToolDef } from "./types/domain/index.js";
+export type { InsightConfig, InsightResult } from "./types/domain/index.js";
 
 // ── Config + Errors ────────────────────────────────────────────────
 
-export { DEFAULT_CONFIG } from "./config.js";
-export type { DefaultConfig } from "./config.js";
+export { DEFAULT_CONFIG } from "./lib/config.js";
+export type { DefaultConfig } from "./lib/config.js";
 
 export {
   EtaError,
@@ -111,7 +111,7 @@ export {
   McpError,
   BudgetError,
   CheckpointError,
-} from "./errors.js";
+} from "./lib/errors.js";
 
 // ── Agent API ──────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ export { Tool } from "./agent/index.js";
 // ── Kernel ─────────────────────────────────────────────────────────
 
 export { startRun, continueRun } from "./kernel/index.js";
-export type { RunContext } from "./types/kernel.js";
+export type { RunContext } from "./types/domain/kernel.js";
 export type { RestoreConfig } from "./kernel/entry/continue.js";
 
 // ── Providers (our defaults) ───────────────────────────────────────
@@ -219,12 +219,4 @@ export { McpServer } from "./mcp/index.js";
 export { browserMcp } from "./collections/mcps/browser/browser.js";
 export type { BrowserMcpOptions } from "./collections/mcps/browser/browser.js";
 
-// ── Scanner ────────────────────────────────────────────────────────
 
-export { ToolScanner } from "./scanner/index.js";
-export type {
-  ScanResult,
-  ScannedAgent,
-  ScannedMcp,
-  ScanOptions,
-} from "./scanner/index.js";

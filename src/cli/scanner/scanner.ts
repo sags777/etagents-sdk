@@ -110,6 +110,7 @@ function walk(dir: string, cb: (file: string) => void): void {
       if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
       walk(path.join(dir, entry.name), cb);
     } else if (entry.isFile()) {
+      if (entry.name.startsWith(".")) continue;
       cb(path.join(dir, entry.name));
     }
   }

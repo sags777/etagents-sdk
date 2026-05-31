@@ -5,7 +5,7 @@
  */
 
 import type { Command } from "commander";
-import { ToolScanner } from "../../scanner/index.js";
+import { ToolScanner } from "../scanner/index.js";
 
 export function register(program: Command): void {
   program

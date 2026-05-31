@@ -1,4 +1,4 @@
-import { StoreError } from "../../../errors.js";
+import { StoreError } from "../../../lib/errors.js";
 
 /**
  * Wrap a store operation in a uniform try/catch that converts any thrown error

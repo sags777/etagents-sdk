@@ -13,7 +13,7 @@
 
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
-import type { StoreProvider } from "../../contracts/store.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
 import type {
   RunRecord,
   CheckpointRecord,
@@ -23,14 +23,14 @@ import type {
   RunEventRecord,
   ToolCallRecordFull,
   AgentPromptRecord,
-} from "../../types/records.js";
-import type { Message } from "../../types/message.js";
-import type { ToolCall } from "../../types/message.js";
+} from "../../types/domain/records.js";
+import type { Message } from "../../types/domain/message.js";
+import type { ToolCall } from "../../types/domain/message.js";
 import type {
   PendingApproval,
   SuspendSnapshot,
-} from "../../types/checkpoint.js";
-import type { Role } from "../../types/message.js";
+} from "../../types/domain/checkpoint.js";
+import type { Role } from "../../types/domain/message.js";
 import type {
   RunRepository,
   CheckpointRepository,
@@ -54,7 +54,7 @@ import {
   runEventsKey,
   agentPromptKey,
 } from "../keys.js";
-import { SNAPSHOT_INSIGHTS_KEY } from "../../constants.js";
+import { SNAPSHOT_INSIGHTS_KEY } from "../../lib/constants.js";
 
 // ---------------------------------------------------------------------------
 // Message serialization helpers

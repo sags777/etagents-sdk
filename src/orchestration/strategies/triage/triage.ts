@@ -1,12 +1,12 @@
 import { z } from "zod";
-import type { AgentDef } from "../../../types/agent.js";
-import type { ModelProvider } from "../../../contracts/model.js";
+import type { AgentDef } from "../../../types/domain/agent.js";
+import type { ModelProvider } from "../../../types/contracts/model.js";
 import type {
   RoutingDecision,
   RoutingStrategy,
   RoutingContext,
 } from "../rule/rule.js";
-import { buildTriageRouterSystemPrompt } from "../../../prompts.js";
+import { buildTriageRouterSystemPrompt } from "../../../lib/prompts.js";
 import { stripJsonFences } from "../../../providers/model/shared/stream.js";
 
 // ---------------------------------------------------------------------------

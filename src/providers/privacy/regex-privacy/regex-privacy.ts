@@ -3,9 +3,9 @@ import type {
   PrivacyMap,
   MaskResult,
   EncryptedMap,
-} from "../../../contracts/privacy.js";
+} from "../../../types/contracts/privacy.js";
 import { z } from "zod";
-import { PrivacyError } from "../../../errors.js";
+import { PrivacyError } from "../../../lib/errors.js";
 import type { PiiRule } from "../types.js";
 import { BUILTIN_RULES } from "../rules/rules.js";
 

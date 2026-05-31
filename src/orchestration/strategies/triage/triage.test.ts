@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TriageRouter } from "./triage.js";
 import { MockModel } from "../../../providers/model/mock/mock.js";
-import type { AgentDef } from "../../../types/agent.js";
+import type { AgentDef } from "../../../types/domain/agent.js";
 
 // ---------------------------------------------------------------------------
 // Minimal AgentDef stubs

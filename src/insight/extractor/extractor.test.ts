@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runInsight } from "./extractor.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
-import type { Message } from "../../types/message.js";
+import type { Message } from "../../types/domain/message.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures

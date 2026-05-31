@@ -1,9 +1,9 @@
 import { RunSession } from "../run-session/run-session.js";
 import { PersistenceAdapter } from "../persist/persistence-adapter.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunResult, RunEvent } from "../../types/run.js";
-import type { ApprovalDecision } from "../../types/checkpoint.js";
-import { CheckpointError } from "../../errors.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { RunResult, RunEvent } from "../../types/domain/run.js";
+import type { ApprovalDecision } from "../../types/domain/checkpoint.js";
+import { CheckpointError } from "../../lib/errors.js";
 
 // ---------------------------------------------------------------------------
 // RestoreConfig — passed to continueRun by the caller

@@ -4,9 +4,9 @@ import type {
   MemoryMatch,
   MemoryScope,
   MemoryKind,
-} from "../../contracts/memory.js";
-import type { ModelProvider } from "../../contracts/model.js";
-import { MEMORY_PIPE_HYDE_SYSTEM_PROMPT } from "../../prompts.js";
+} from "../../types/contracts/memory.js";
+import type { ModelProvider } from "../../types/contracts/model.js";
+import { MEMORY_PIPE_HYDE_SYSTEM_PROMPT } from "../../lib/prompts.js";
 
 // ---------------------------------------------------------------------------
 // MemoryPipe — retrieval injection and post-run indexing

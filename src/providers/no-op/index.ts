@@ -5,9 +5,9 @@
  * Import from here rather than repeating inline definitions.
  */
 
-import type { MemoryProvider } from "../../contracts/memory.js";
-import type { StoreProvider } from "../../contracts/store.js";
-import type { PrivacyProvider, PrivacyMap } from "../../contracts/privacy.js";
+import type { MemoryProvider } from "../../types/contracts/memory.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
+import type { PrivacyProvider, PrivacyMap } from "../../types/contracts/privacy.js";
 
 export const NO_OP_MEMORY: MemoryProvider = {
   async index() {},

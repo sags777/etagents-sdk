@@ -1,9 +1,9 @@
 import { nanoid } from "nanoid";
 import { startRun } from "../../kernel/entry/start.js";
 import { PersistenceAdapter } from "../../kernel/persist/persistence-adapter.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunResult } from "../../types/run.js";
-import { toRunSummary } from "../../types/run.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { RunConfig, RunResult } from "../../types/domain/run.js";
+import { toRunSummary } from "../../types/domain/run.js";
 import type { RoutingStrategy } from "../strategies/rule/rule.js";
 
 // ---------------------------------------------------------------------------

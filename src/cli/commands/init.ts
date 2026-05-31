@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
-import { CLI_DEFAULT_AGENT_SYSTEM_PROMPT } from "../../prompts.js";
+import { CLI_DEFAULT_AGENT_SYSTEM_PROMPT } from "../../lib/prompts.js";
 
 export function register(program: Command): void {
   program

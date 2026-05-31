@@ -4,8 +4,8 @@ import { RuleRouter } from "../strategies/rule/rule.js";
 import { createAgent } from "../../agent/agent-builder.js";
 import { MockModel } from "../../providers/model/mock/mock.js";
 import { NO_OP_MEMORY, NO_OP_PRIVACY } from "../../providers/no-op/index.js";
-import type { StoreProvider } from "../../contracts/store.js";
-import type { RoutingDecisionRecord } from "../../types/records.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
+import type { RoutingDecisionRecord } from "../../types/domain/records.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -6,11 +6,11 @@ import type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
-} from "../../../contracts/memory.js";
-import { MemoryError } from "../../../errors.js";
+} from "../../../types/contracts/memory.js";
+import { MemoryError } from "../../../lib/errors.js";
 import { createRedisClient } from "../../redis/client.js";
 import { memoryKey } from "../../../kernel/keys.js";
-import { STORE_KEYS } from "../../../constants.js";
+import { STORE_KEYS } from "../../../lib/constants.js";
 
 // ---------------------------------------------------------------------------
 // Local types

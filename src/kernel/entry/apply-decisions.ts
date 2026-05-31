@@ -1,9 +1,9 @@
-import type { RunState } from "../../types/run.js";
+import type { RunState } from "../../types/domain/run.js";
 import type {
   ApprovalDecision,
   PendingApproval,
-} from "../../types/checkpoint.js";
-import type { ToolContext } from "../../types/tool.js";
+} from "../../types/domain/checkpoint.js";
+import type { ToolContext } from "../../types/domain/tool.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import { routeTool } from "../tool-router/tool-router.js";

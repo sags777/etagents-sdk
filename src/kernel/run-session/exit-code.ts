@@ -1,4 +1,4 @@
-import type { ExitCode, RunResult } from "../../types/run.js";
+import type { ExitCode, RunResult } from "../../types/domain/run.js";
 
 /**
  * exitCodeToStatus — maps an internal ExitCode to the public RunResult status.

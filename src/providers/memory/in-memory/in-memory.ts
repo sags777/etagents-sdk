@@ -4,7 +4,7 @@ import type {
   MemoryScope,
   MemorySearchOptions,
   MemoryMatch,
-} from "../../../contracts/memory.js";
+} from "../../../types/contracts/memory.js";
 
 interface StoredEntry extends MemoryEntry {
   indexedAt: number;

@@ -5,9 +5,9 @@
  */
 
 export { defineTool, agentAsTool } from "./tool-builder.js";
-export type { ToolConfig } from "../types/tool.js";
+export type { ToolConfig } from "../types/domain/tool.js";
 export { executeTool } from "./tool-executor.js";
-export type { ToolContext, ToolExecResult } from "../types/tool.js";
+export type { ToolContext, ToolExecResult } from "../types/domain/tool.js";
 export {
   createAgent,
   cloneAgent,

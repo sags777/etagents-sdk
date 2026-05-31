@@ -1,10 +1,10 @@
-import type { ToolCall, ToolResult } from "../../types/message.js";
+import type { ToolCall, ToolResult } from "../../types/domain/message.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import type { ToolContext } from "../../types/tool.js";
+import type { ToolContext } from "../../types/domain/tool.js";
 import { executeTool } from "../../agent/tool-executor.js";
 import { toolCacheKey } from "../keys.js";
-import { MCP_NAMESPACE_SEPARATOR } from "../../constants.js";
+import { MCP_NAMESPACE_SEPARATOR } from "../../lib/constants.js";
 
 // ---------------------------------------------------------------------------
 // routeTool — dispatches a single tool call to local or MCP handler

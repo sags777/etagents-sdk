@@ -1,4 +1,4 @@
-import type { AgentDef } from "../../../types/agent.js";
+import type { AgentDef } from "../../../types/domain/agent.js";
 
 // ---------------------------------------------------------------------------
 // RoutingAssignment — a single agent in a fan-out routing decision

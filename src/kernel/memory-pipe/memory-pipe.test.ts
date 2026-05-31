@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { MemoryPipe } from "./memory-pipe.js";
 import { InMemory } from "../../providers/memory/in-memory/in-memory.js";
-import type { MemoryScope } from "../../contracts/memory.js";
+import type { MemoryScope } from "../../types/contracts/memory.js";
 
 const scope: MemoryScope = { agentId: "agent-1", namespace: "default" };
 
@@ -93,7 +93,7 @@ describe("MemoryPipe", () => {
 
       // Attach a reranker that reverses the order
       (memory as unknown as Record<string, unknown>).rerank = vi.fn(
-        async (results: import("../../contracts/memory.js").MemoryMatch[]) =>
+        async (results: import("../../types/contracts/memory.js").MemoryMatch[]) =>
           [...results].reverse(),
       );
 

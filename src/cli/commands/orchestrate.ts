@@ -8,7 +8,7 @@ import type { Command } from "commander";
 import { loadAgentFile, resolveModel } from "../loader/loader.js";
 import { AgentRouter } from "../../orchestration/index.js";
 import { TriageRouter } from "../../orchestration/index.js";
-import type { RunConfig } from "../../types/run.js";
+import type { RunConfig } from "../../types/domain/run.js";
 
 export function register(program: Command): void {
   program

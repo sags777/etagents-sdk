@@ -7,8 +7,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { StoreProvider, WriteOptions } from "../../../contracts/store.js";
-import { StoreError } from "../../../errors.js";
+import type { StoreProvider, WriteOptions } from "../../../types/contracts/store.js";
+import { StoreError } from "../../../lib/errors.js";
 
 /**
  * Wrapper persisted to disk. `_expiresAt` is a Unix epoch (ms) or null.

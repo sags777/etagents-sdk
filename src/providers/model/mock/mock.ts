@@ -4,7 +4,7 @@ import type {
   CompletionOptions,
   ModelResponse,
   StreamChunk,
-} from "../../../contracts/model.js";
+} from "../../../types/contracts/model.js";
 import { zeroUsage, collectStream } from "../shared/stream.js";
 
 // ---------------------------------------------------------------------------

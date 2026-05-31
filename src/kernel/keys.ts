@@ -8,7 +8,7 @@
  * compatibility while keeping the logical prefix clear.
  */
 
-import { STORE_KEYS } from "../constants.js";
+import { STORE_KEYS } from "../lib/constants.js";
 import crypto from "node:crypto";
 
 export const runKey = (runId: string): string =>

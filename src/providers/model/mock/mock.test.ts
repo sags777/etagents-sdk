@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockModel } from "./mock.js";
-import type { StreamChunk } from "../../../contracts/model.js";
+import type { StreamChunk } from "../../../types/contracts/model.js";
 
 async function collect(
   gen: AsyncIterable<StreamChunk>,

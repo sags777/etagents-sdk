@@ -3,7 +3,7 @@ import type {
   FinishReason,
   TokenUsage,
   ModelResponse,
-} from "../../../contracts/model.js";
+} from "../../../types/contracts/model.js";
 
 /**
  * Shared streaming utilities for all ModelProvider implementations.

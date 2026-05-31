@@ -2,20 +2,20 @@ import type {
   StreamChunk,
   TokenUsage,
   FinishReason,
-} from "../../contracts/model.js";
-import type { ToolCall } from "../../types/message.js";
-import type { Message } from "../../types/message.js";
-import type { TurnCycleContext } from "../../types/kernel.js";
-import type { ToolCallRecord } from "../../types/tool.js";
-import type { RunState, RunEvent } from "../../types/run.js";
-import type { HitlConfig } from "../../types/agent.js";
-import type { PendingApproval } from "../../types/checkpoint.js";
+} from "../../types/contracts/model.js";
+import type { ToolCall } from "../../types/domain/message.js";
+import type { Message } from "../../types/domain/message.js";
+import type { TurnCycleContext } from "../../types/domain/kernel.js";
+import type { ToolCallRecord } from "../../types/domain/tool.js";
+import type { RunState, RunEvent } from "../../types/domain/run.js";
+import type { HitlConfig } from "../../types/domain/agent.js";
+import type { PendingApproval } from "../../types/domain/checkpoint.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 import { safeHook } from "./safe-hook.js";
 import { routeToolTimed } from "../tool-router/tool-router.js";
 import type { TimedToolResult } from "../tool-router/tool-router.js";
-import type { ToolContext } from "../../types/tool.js";
+import type { ToolContext } from "../../types/domain/tool.js";
 import { nanoid } from "nanoid";
 import { zeroUsage } from "../../providers/model/shared/stream.js";
 

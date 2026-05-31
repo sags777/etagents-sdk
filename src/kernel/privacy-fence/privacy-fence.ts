@@ -2,8 +2,8 @@ import type {
   PrivacyProvider,
   PrivacyMap,
   EncryptedMap,
-} from "../../contracts/privacy.js";
-import type { Message } from "../../types/message.js";
+} from "../../types/contracts/privacy.js";
+import type { Message } from "../../types/domain/message.js";
 
 // ---------------------------------------------------------------------------
 // PrivacyFence — owns the run-lifetime PrivacyMap

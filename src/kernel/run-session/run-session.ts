@@ -1,23 +1,23 @@
 import { nanoid } from "nanoid";
-import { DEFAULT_HITL_TIMEOUT } from "../../constants.js";
-import type { AgentDef } from "../../types/agent.js";
+import { DEFAULT_HITL_TIMEOUT } from "../../lib/constants.js";
+import type { AgentDef } from "../../types/domain/agent.js";
 import type {
   RunConfig,
   RunResult,
   RunState,
   ExitCode,
   RunEvent,
-} from "../../types/run.js";
+} from "../../types/domain/run.js";
 import type {
   ApprovalDecision,
   SuspendSnapshot,
-} from "../../types/checkpoint.js";
-import type { Message } from "../../types/message.js";
-import type { ToolContext } from "../../types/tool.js";
-import type { SessionInsights } from "../../types/session.js";
-import type { RunContext, RunSessionStatus } from "../../types/kernel.js";
-import type { MemoryScope } from "../../contracts/memory.js";
-import type { RunEventRecord } from "../../types/records.js";
+} from "../../types/domain/checkpoint.js";
+import type { Message } from "../../types/domain/message.js";
+import type { ToolContext } from "../../types/domain/tool.js";
+import type { SessionInsights } from "../../types/domain/session.js";
+import type { RunContext, RunSessionStatus } from "../../types/domain/kernel.js";
+import type { MemoryScope } from "../../types/contracts/memory.js";
+import type { RunEventRecord } from "../../types/domain/records.js";
 import { buildRunContext, buildRestoreContext } from "./context.js";
 import { McpHub } from "../mcp-hub/mcp-hub.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
@@ -29,8 +29,8 @@ import { exitCodeToStatus } from "./exit-code.js";
 import { runLoop } from "./run-loop.js";
 import { sessionInsight } from "./session-insight.js";
 import { applyDecisions } from "../entry/apply-decisions.js";
-import { toRunSummary } from "../../types/run.js";
-import { CheckpointError } from "../../errors.js";
+import { toRunSummary } from "../../types/domain/run.js";
+import { CheckpointError } from "../../lib/errors.js";
 
 // ---------------------------------------------------------------------------
 // RunSession

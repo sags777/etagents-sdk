@@ -1,6 +1,6 @@
 import { RunSession } from "../run-session/run-session.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunConfig, RunResult } from "../../types/run.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { RunConfig, RunResult } from "../../types/domain/run.js";
 
 // ---------------------------------------------------------------------------
 // startRun — public kernel entry point

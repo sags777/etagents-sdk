@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { StoreProvider } from "../../contracts/store.js";
-import type { RunResult } from "../../types/run.js";
-import type { PendingApproval } from "../../types/checkpoint.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
+import type { RunResult } from "../../types/domain/run.js";
+import type { PendingApproval } from "../../types/domain/checkpoint.js";
 import { PersistenceAdapter } from "./persistence-adapter.js";
 
 // ---------------------------------------------------------------------------

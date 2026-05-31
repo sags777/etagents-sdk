@@ -1,4 +1,4 @@
-import type { RunEvent } from "../types/run.js";
+import type { RunEvent } from "../types/domain/run.js";
 
 // ---------------------------------------------------------------------------
 // Shared SSE encoding helpers used by SessionEventStream

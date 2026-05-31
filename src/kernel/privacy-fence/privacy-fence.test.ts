@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PrivacyFence } from "./privacy-fence.js";
 import { RegexPrivacy } from "../../providers/privacy/regex-privacy/regex-privacy.js";
-import type { Message } from "../../types/message.js";
+import type { Message } from "../../types/domain/message.js";
 
 function emailPrivacy() {
   return new RegexPrivacy([

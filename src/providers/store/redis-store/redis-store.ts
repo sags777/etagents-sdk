@@ -1,9 +1,9 @@
 import { type RedisClientType } from "redis";
-import type { StoreProvider, WriteOptions } from "../../../contracts/store.js";
+import type { StoreProvider, WriteOptions } from "../../../types/contracts/store.js";
 import { createRedisClient } from "../../redis/client.js";
 import { wrapStoreError } from "../shared/store-utils.js";
 import { storeKey } from "../../../kernel/keys.js";
-import { STORE_KEYS } from "../../../constants.js";
+import { STORE_KEYS } from "../../../lib/constants.js";
 
 /**
  * RedisStoreConfig — connection and namespace options.

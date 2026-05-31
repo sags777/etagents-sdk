@@ -1,5 +1,5 @@
-import type { RunConfig } from "../types/run.js";
-import type { RunEvent } from "../types/run.js";
+import type { RunConfig } from "../types/domain/run.js";
+import type { RunEvent } from "../types/domain/run.js";
 
 // ---------------------------------------------------------------------------
 // Shared HTTP transport types

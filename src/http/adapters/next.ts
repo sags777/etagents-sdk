@@ -1,6 +1,6 @@
 import { SessionEventStream, SSE_HEADERS } from "../event-stream.js";
 import type { StreamOptions } from "../stream-options.js";
-import type { AgentDef } from "../../types/agent.js";
+import type { AgentDef } from "../../types/domain/agent.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Next.js App Router type surface

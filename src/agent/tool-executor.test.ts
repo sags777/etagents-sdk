@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { defineTool } from "./tool-builder.js";
 import { executeTool } from "./tool-executor.js";
-import type { ToolContext } from "../types/tool.js";
+import type { ToolContext } from "../types/domain/tool.js";
 
 // ---------------------------------------------------------------------------
 // Shared test context

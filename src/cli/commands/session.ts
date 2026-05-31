@@ -7,7 +7,7 @@
  */
 
 import type { Command } from "commander";
-import type { StoreProvider } from "../../contracts/store.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
 import { FileStore } from "../../providers/store/index.js";
 
 const SESSION_PREFIX = "eta:run:";

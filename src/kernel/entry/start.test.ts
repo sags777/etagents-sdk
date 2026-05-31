@@ -1,16 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { createAgent } from "../../agent/agent-builder.js";
 import { defineTool } from "../../agent/tool-builder.js";
-import { startRun } from "./start.js";
-import { MockModel } from "../../providers/model/mock/mock.js";
+import type { StoreProvider } from "../../types/contracts/store.js";
 import { InMemory } from "../../providers/memory/in-memory/in-memory.js";
+import { MockModel } from "../../providers/model/mock/mock.js";
 import { RegexPrivacy } from "../../providers/privacy/regex-privacy/regex-privacy.js";
-import { z } from "zod";
-import type { StoreProvider } from "../../contracts/store.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import type { RunEvent } from "../../types/domain/run.js";
+import { PersistenceAdapter } from "../persist/persistence-adapter.js";
+import { startRun } from "./start.js";
 
 function makeMemoryStore(): StoreProvider {
   const map = new Map<string, unknown>();
@@ -25,24 +23,17 @@ function makeMemoryStore(): StoreProvider {
       map.delete(key);
     },
     async list(prefix: string): Promise<string[]> {
-      return [...map.keys()].filter((k) => k.startsWith(prefix));
+      return [...map.keys()].filter((key) => key.startsWith(prefix));
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("startRun", () => {
   it("returns complete status with model text response", async () => {
     const model = MockModel.create([
       { kind: "text", content: "Hello from the agent!" },
     ]);
+
     const result = await startRun(
       createAgent({ name: "agent", systemPrompt: "You help.", model }),
       "Hello",
@@ -51,7 +42,7 @@ describe("startRun", () => {
     expect(result.status).toBe("complete");
     expect(result.response).toBe("Hello from the agent!");
     expect(result.turns).toBe(1);
-    expect(result.messages).toHaveLength(3); // system + user + assistant
+    expect(result.messages).toHaveLength(3);
   });
 
   it("executes a tool call and returns final text response", async () => {
@@ -83,7 +74,6 @@ describe("startRun", () => {
     expect(result.status).toBe("complete");
     expect(result.response).toBe("Got: echo: hi");
     expect(result.turns).toBe(2);
-    // system, user, assistant(tool_call), tool(result), assistant(final)
     expect(result.messages.length).toBeGreaterThanOrEqual(4);
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls[0].name).toBe("echo");
@@ -98,7 +88,6 @@ describe("startRun", () => {
       model: MockModel.create([{ kind: "text", content: "Sure!" }]),
       memory,
     });
-    // Use overlapping words in fact and query so word-overlap scoring returns > 0
     await memory.index({
       id: "fact-1",
       text: "concise helpful answers",
@@ -107,17 +96,16 @@ describe("startRun", () => {
 
     let capturedMessages: unknown[] = [];
     const model = agent.model as MockModel;
-
-    const origStream = model.stream.bind(model);
+    const originalStream = model.stream.bind(model);
     model.stream = async function* (messages, opts) {
       capturedMessages = messages;
-      yield* origStream(messages, opts);
+      yield* originalStream(messages, opts);
     };
 
     await startRun(agent, "Give concise helpful answers");
 
     const systemMsg = capturedMessages.find(
-      (m: unknown) => (m as { role: string }).role === "system",
+      (message: unknown) => (message as { role: string }).role === "system",
     ) as { content: string } | undefined;
     expect(systemMsg?.content).toContain("concise helpful answers");
   });
@@ -132,18 +120,15 @@ describe("startRun", () => {
     ]);
 
     let sentMessages: unknown[] = [];
-    // Capture the placeholder the fence generates so we can feed it back to unmask
     let capturedPlaceholder = "";
-    const model = MockModel.create([]); // queue empty — we fill dynamically
+    const model = MockModel.create([]);
     model.stream = async function* (messages) {
       sentMessages = messages;
-      // Figure out what placeholder was injected into the user message
-      const userMsg = messages.find((m) => m.role === "user") as
+      const userMsg = messages.find((message) => message.role === "user") as
         | { content: string }
         | undefined;
       const match = userMsg?.content.match(/⟨eta:[A-Z]+:[0-9a-f]+⟩/);
       capturedPlaceholder = match?.[0] ?? "";
-      // Return a response containing the placeholder so unmask can restore it
       yield {
         type: "text" as const,
         delta: `Your address: ${capturedPlaceholder}`,
@@ -160,72 +145,483 @@ describe("startRun", () => {
       "My email is user@example.com",
     );
 
-    // Model received masked input — no raw email
     const userMsg = sentMessages.find(
-      (m: unknown) => (m as { role: string }).role === "user",
+      (message: unknown) => (message as { role: string }).role === "user",
     ) as { content: string } | undefined;
     expect(userMsg?.content).not.toContain("user@example.com");
     expect(userMsg?.content).toMatch(/⟨eta:/);
-
-    // Response was unmasked — placeholder replaced with original email
     expect(result.response).not.toContain(capturedPlaceholder);
     expect(result.response).toContain("user@example.com");
   });
 
-  it("returns cancelled status when AbortSignal fires", async () => {
-    const controller = new AbortController();
-    const model = MockModel.create([{ kind: "text", content: "Too late" }]);
+  describe("events", () => {
+    it("emits turn_start, text_delta, text_done, turn_end, and complete in order", async () => {
+      const model = MockModel.create([{ kind: "text", content: "Hello!" }]);
+      const events: RunEvent[] = [];
 
-    // Abort immediately before startRun has a chance to complete the first turn
-    controller.abort();
+      await startRun(
+        createAgent({ name: "agent", systemPrompt: "You help.", model }),
+        "Hi",
+        { onEvent: (event) => events.push(event) },
+      );
 
-    const result = await startRun(
-      createAgent({ name: "agent", systemPrompt: "You help.", model }),
-      "Hello",
-      { signal: controller.signal },
-    );
+      const kinds = events.map((event) => event.kind);
+      const turnStartIdx = kinds.indexOf("turn_start");
+      const textDeltaIdx = kinds.indexOf("text_delta");
+      const textDoneIdx = kinds.indexOf("text_done");
+      const turnEndIdx = kinds.indexOf("turn_end");
+      const completeIdx = kinds.indexOf("complete");
 
-    expect(result.status).toBe("cancelled");
-    expect(result.turns).toBe(0);
-  });
-
-  it("returns complete when maxTurns is reached", async () => {
-    // Provide more tool-call responses than maxTurns allows
-    const echoTool = defineTool({
-      name: "loop",
-      description: "loops",
-      params: z.object({}),
-      handler: async () => "looped",
+      expect(turnStartIdx).toBeGreaterThanOrEqual(0);
+      expect(textDeltaIdx).toBeGreaterThan(turnStartIdx);
+      expect(textDoneIdx).toBeGreaterThan(textDeltaIdx);
+      expect(turnEndIdx).toBeGreaterThan(textDoneIdx);
+      expect(completeIdx).toBeGreaterThan(turnEndIdx);
     });
 
-    const model = MockModel.create([
-      { kind: "tools", calls: [{ id: "c1", name: "loop", input: {} }] },
-      { kind: "tools", calls: [{ id: "c2", name: "loop", input: {} }] },
-      { kind: "tools", calls: [{ id: "c3", name: "loop", input: {} }] },
-      { kind: "text", content: "done" },
-    ]);
+    it("emits matching turn numbers for turn_start and turn_end", async () => {
+      const model = MockModel.create([{ kind: "text", content: "Reply." }]);
+      const events: RunEvent[] = [];
 
-    const result = await startRun(
-      createAgent({
-        name: "agent",
-        systemPrompt: "loop.",
-        model,
-        tools: [echoTool],
-      }),
-      "Go",
-      { maxTurns: 2 },
-    );
+      await startRun(
+        createAgent({ name: "agent", systemPrompt: "You help.", model }),
+        "Hi",
+        { onEvent: (event) => events.push(event) },
+      );
 
-    expect(result.turns).toBeLessThanOrEqual(2);
-    expect(["complete", "cancelled", "budget_exceeded"]).toContain(
-      result.status,
-    );
+      const turnStart = events.find((event) => event.kind === "turn_start") as Extract<
+        RunEvent,
+        { kind: "turn_start" }
+      >;
+      const turnEnd = events.find((event) => event.kind === "turn_end") as Extract<
+        RunEvent,
+        { kind: "turn_end" }
+      >;
+
+      expect(turnStart.turn).toBe(1);
+      expect(turnEnd.turn).toBe(1);
+    });
+
+    it("emits a complete event that matches the returned summary", async () => {
+      const model = MockModel.create([{ kind: "text", content: "OK" }]);
+      const events: RunEvent[] = [];
+
+      const result = await startRun(
+        createAgent({ name: "agent", systemPrompt: "You help.", model }),
+        "Hi",
+        { onEvent: (event) => events.push(event) },
+      );
+
+      const completeEvent = events.find((event) => event.kind === "complete") as Extract<
+        RunEvent,
+        { kind: "complete" }
+      >;
+
+      expect(completeEvent.result.status).toBe(result.status);
+      expect(completeEvent.result.turns).toBe(result.turns);
+    });
+
+    it("emits tool_call and tool_result events", async () => {
+      const echoTool = defineTool({
+        name: "echo",
+        description: "echoes",
+        params: z.object({ msg: z.string() }),
+        handler: async ({ msg }) => msg,
+      });
+
+      const model = MockModel.create([
+        {
+          kind: "tools",
+          calls: [{ id: "c1", name: "echo", input: { msg: "ping" } }],
+        },
+        { kind: "text", content: "Done." },
+      ]);
+
+      const events: RunEvent[] = [];
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Use tools.",
+          model,
+          tools: [echoTool],
+        }),
+        "Ping",
+        { onEvent: (event) => events.push(event) },
+      );
+
+      const kinds = events.map((event) => event.kind);
+      expect(kinds).toContain("tool_call");
+      expect(kinds).toContain("tool_result");
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].name).toBe("echo");
+      expect(result.toolCalls[0].result).toBe("ping");
+    });
+
+    it("includes the agent name on tool_call events", async () => {
+      const tool = defineTool({
+        name: "noop",
+        description: "does nothing",
+        params: z.object({}),
+        handler: async () => "done",
+      });
+
+      const model = MockModel.create([
+        { kind: "tools", calls: [{ id: "c1", name: "noop", input: {} }] },
+        { kind: "text", content: "ok" },
+      ]);
+
+      const events: RunEvent[] = [];
+      await startRun(
+        createAgent({
+          name: "my-agent",
+          systemPrompt: ".",
+          model,
+          tools: [tool],
+        }),
+        "go",
+        { onEvent: (event) => events.push(event) },
+      );
+
+      const toolCallEvent = events.find((event) => event.kind === "tool_call") as Extract<
+        RunEvent,
+        { kind: "tool_call" }
+      >;
+
+      expect(toolCallEvent.agentName).toBe("my-agent");
+      expect(toolCallEvent.toolCall.name).toBe("noop");
+      expect(toolCallEvent.turn).toBe(1);
+    });
+
+    it("marks successful tool_result events as non-errors and non-cached", async () => {
+      const tool = defineTool({
+        name: "ok",
+        description: "succeeds",
+        params: z.object({}),
+        handler: async () => "success",
+      });
+
+      const model = MockModel.create([
+        { kind: "tools", calls: [{ id: "c1", name: "ok", input: {} }] },
+        { kind: "text", content: "done" },
+      ]);
+
+      const events: RunEvent[] = [];
+      await startRun(
+        createAgent({ name: "agent", systemPrompt: ".", model, tools: [tool] }),
+        "go",
+        { onEvent: (event) => events.push(event) },
+      );
+
+      const toolResultEvent = events.find((event) => event.kind === "tool_result") as Extract<
+        RunEvent,
+        { kind: "tool_result" }
+      >;
+
+      expect(toolResultEvent.isError).toBe(false);
+      expect(toolResultEvent.isFromCache).toBe(false);
+      expect(toolResultEvent.result).toBe("success");
+      expect(toolResultEvent.turn).toBe(1);
+    });
   });
 
-  describe("lifecycle hooks — beforeRun / afterRun", () => {
-    it("calls beforeRun before the run with input and hook context", async () => {
-      const calls: Array<{ input: string; agentName: string; turn: number }> =
-        [];
+  describe("suspend paths", () => {
+    it("returns awaiting_approval with a checkpointId for sensitive tools", async () => {
+      const sensitiveTool = defineTool({
+        name: "danger",
+        description: "dangerous",
+        params: z.object({}),
+        handler: async () => "done",
+        sensitive: true,
+      });
+
+      const model = MockModel.create([
+        {
+          kind: "tools",
+          calls: [{ id: "approve-me", name: "danger", input: {} }],
+        },
+      ]);
+
+      const store = makeMemoryStore();
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Be cautious.",
+          model,
+          tools: [sensitiveTool],
+          store,
+          hitl: { mode: "sensitive" },
+        }),
+        "Do something dangerous",
+      );
+
+      expect(result.status).toBe("awaiting_approval");
+      expect(typeof result.checkpointId).toBe("string");
+    });
+
+    it("persists the suspend snapshot with the pending approval", async () => {
+      const sensitiveTool = defineTool({
+        name: "danger",
+        description: "dangerous",
+        params: z.object({}),
+        handler: async () => "done",
+        sensitive: true,
+      });
+
+      const model = MockModel.create([
+        {
+          kind: "tools",
+          calls: [{ id: "approve-me", name: "danger", input: {} }],
+        },
+      ]);
+
+      const store = makeMemoryStore();
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Be cautious.",
+          model,
+          tools: [sensitiveTool],
+          store,
+          hitl: { mode: "sensitive" },
+        }),
+        "Do something dangerous",
+      );
+
+      const snapshot = await new PersistenceAdapter(store).loadSuspendSnapshot(
+        result.checkpointId!,
+      );
+
+      expect(snapshot).not.toBeNull();
+      expect(snapshot?.pendingApprovals).toHaveLength(1);
+      expect(snapshot?.pendingApprovals[0].name).toBe("danger");
+    });
+
+    it("returns the correct pending approval details", async () => {
+      const transferTool = defineTool({
+        name: "transfer",
+        description: "transfers funds",
+        params: z.object({ amount: z.number() }),
+        handler: async () => "transferred",
+        sensitive: true,
+      });
+
+      const model = MockModel.create([
+        {
+          kind: "tools",
+          calls: [{ id: "tx-1", name: "transfer", input: { amount: 100 } }],
+        },
+      ]);
+
+      const store = makeMemoryStore();
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Handle finances.",
+          model,
+          tools: [transferTool],
+          store,
+          hitl: { mode: "sensitive" },
+        }),
+        "Transfer 100",
+      );
+
+      expect(result.pendingApprovals).toHaveLength(1);
+      expect(result.pendingApprovals?.[0].toolCallId).toBe("tx-1");
+      expect(result.pendingApprovals?.[0].args).toEqual({ amount: 100 });
+    });
+
+    it("handles callback HITL inline without writing a checkpoint", async () => {
+      const tool = defineTool({
+        name: "risky",
+        description: "risky",
+        sensitive: true,
+        params: z.object({}),
+        handler: async () => "executed",
+      });
+
+      const model = MockModel.create([
+        { kind: "tools", calls: [{ id: "c1", name: "risky", input: {} }] },
+        { kind: "text", content: "Finished." },
+      ]);
+
+      const store = makeMemoryStore();
+      const onApprove = vi
+        .fn()
+        .mockResolvedValue([{ toolCallId: "c1", approved: true }]);
+
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Be careful.",
+          model,
+          tools: [tool],
+          store,
+          hitl: { mode: "callback", onApprove },
+        }),
+        "Do the risky thing",
+      );
+
+      expect(onApprove).toHaveBeenCalledOnce();
+      expect(result.status).toBe("complete");
+      expect(result.checkpointId).toBeUndefined();
+      expect(await store.list("eta:suspend")).toHaveLength(0);
+    });
+
+    it("passes the pending approvals list to callback HITL", async () => {
+      const tool = defineTool({
+        name: "sensitive-action",
+        description: "sensitive",
+        sensitive: true,
+        params: z.object({ payload: z.string() }),
+        handler: async () => "done",
+      });
+
+      const model = MockModel.create([
+        {
+          kind: "tools",
+          calls: [
+            { id: "c1", name: "sensitive-action", input: { payload: "test" } },
+          ],
+        },
+        { kind: "text", content: "ok" },
+      ]);
+
+      let capturedPending: unknown[] = [];
+      const onApprove = vi.fn().mockImplementation(async (pending) => {
+        capturedPending = pending;
+        return [{ toolCallId: "c1", approved: true }];
+      });
+
+      await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: ".",
+          model,
+          tools: [tool],
+          hitl: { mode: "callback", onApprove },
+        }),
+        "Do it",
+      );
+
+      expect(capturedPending).toHaveLength(1);
+      expect((capturedPending[0] as { name: string }).name).toBe(
+        "sensitive-action",
+      );
+    });
+  });
+
+  describe("run controls", () => {
+    it("returns cancelled when AbortSignal fires before the first turn", async () => {
+      const controller = new AbortController();
+      const model = MockModel.create([{ kind: "text", content: "Too late" }]);
+
+      controller.abort();
+
+      const result = await startRun(
+        createAgent({ name: "agent", systemPrompt: "You help.", model }),
+        "Hello",
+        { signal: controller.signal },
+      );
+
+      expect(result.status).toBe("cancelled");
+      expect(result.turns).toBe(0);
+    });
+
+    it("returns budget_exceeded when token usage crosses the limit", async () => {
+      const loopTool = defineTool({
+        name: "loop",
+        description: "loops",
+        params: z.object({}),
+        handler: async () => "looped",
+      });
+
+      const model = MockModel.create([]);
+      model.stream = async function* () {
+        yield { type: "tool_start" as const, toolCallId: "c1", toolName: "loop" };
+        yield { type: "tool_delta" as const, toolCallId: "c1", inputDelta: "{}" };
+        yield { type: "tool_end" as const, toolCallId: "c1", input: {} };
+        yield {
+          type: "finish" as const,
+          finishReason: "tool_use" as const,
+          usage: { prompt: 500, completion: 500, total: 1000 },
+        };
+      };
+
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Loop.",
+          model,
+          tools: [loopTool],
+        }),
+        "Go",
+        { maxTokens: 50 },
+      );
+
+      expect(result.status).toBe("budget_exceeded");
+    });
+
+    it("exits the loop when maxTurns is reached", async () => {
+      const loopTool = defineTool({
+        name: "loop",
+        description: "loops forever",
+        params: z.object({}),
+        handler: async () => "looped",
+      });
+
+      const model = MockModel.create([
+        { kind: "tools", calls: [{ id: "c1", name: "loop", input: {} }] },
+        { kind: "tools", calls: [{ id: "c2", name: "loop", input: {} }] },
+        { kind: "tools", calls: [{ id: "c3", name: "loop", input: {} }] },
+        { kind: "text", content: "done eventually" },
+      ]);
+
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: "Loop.",
+          model,
+          tools: [loopTool],
+        }),
+        "Go",
+        { maxTurns: 2 },
+      );
+
+      expect(result.turns).toBeLessThanOrEqual(2);
+    });
+
+    it("returns complete when the run exits on maxTurns", async () => {
+      const loopTool = defineTool({
+        name: "loop",
+        description: "loops",
+        params: z.object({}),
+        handler: async () => "looped",
+      });
+
+      const model = MockModel.create([
+        { kind: "tools", calls: [{ id: "c1", name: "loop", input: {} }] },
+        { kind: "tools", calls: [{ id: "c2", name: "loop", input: {} }] },
+        { kind: "text", content: "finally" },
+      ]);
+
+      const result = await startRun(
+        createAgent({
+          name: "agent",
+          systemPrompt: ".",
+          model,
+          tools: [loopTool],
+        }),
+        "Go",
+        { maxTurns: 1 },
+      );
+
+      expect(result.status).toBe("complete");
+    });
+  });
+
+  describe("lifecycle hooks", () => {
+    it("calls beforeRun before the run with the hook context", async () => {
+      const calls: Array<{ input: string; agentName: string; turn: number }> = [];
       const model = MockModel.create([{ kind: "text", content: "Done" }]);
 
       await startRun(
@@ -243,12 +639,14 @@ describe("startRun", () => {
       );
 
       expect(calls).toHaveLength(1);
-      expect(calls[0].input).toBe("test input");
-      expect(calls[0].agentName).toBe("hook-agent");
-      expect(calls[0].turn).toBe(0);
+      expect(calls[0]).toEqual({
+        input: "test input",
+        agentName: "hook-agent",
+        turn: 0,
+      });
     });
 
-    it("calls afterRun after the run with result and hook context", async () => {
+    it("calls afterRun after the run with the hook context", async () => {
       const calls: Array<{ response: string; agentName: string }> = [];
       const model = MockModel.create([{ kind: "text", content: "Hello!" }]);
 
@@ -267,11 +665,10 @@ describe("startRun", () => {
       );
 
       expect(calls).toHaveLength(1);
-      expect(calls[0].response).toBe("Hello!");
-      expect(calls[0].agentName).toBe("hook-agent");
+      expect(calls[0]).toEqual({ response: "Hello!", agentName: "hook-agent" });
     });
 
-    it("propagates beforeRun errors — run does not complete silently", async () => {
+    it("propagates beforeRun errors", async () => {
       const model = MockModel.create([{ kind: "text", content: "Never" }]);
 
       await expect(
@@ -291,7 +688,7 @@ describe("startRun", () => {
       ).rejects.toThrow("pre-flight failed");
     });
 
-    it("propagates afterRun errors — caller receives the error", async () => {
+    it("propagates afterRun errors", async () => {
       const model = MockModel.create([{ kind: "text", content: "Done" }]);
 
       await expect(

@@ -1,5 +1,5 @@
-import type { CompleteEvent } from "../types/run.js";
-import type { BudgetEvent } from "../types/budget.js";
+import type { CompleteEvent } from "../types/domain/run.js";
+import type { BudgetEvent } from "../types/domain/budget.js";
 import type {
   TurnStartEvent,
   TurnEndEvent,
@@ -8,7 +8,7 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
   ErrorEvent,
-} from "../types/run.js";
+} from "../types/domain/run.js";
 
 // ---------------------------------------------------------------------------
 // ReadyState

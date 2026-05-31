@@ -1,13 +1,13 @@
-import type { RunState, ExitCode, RunEvent } from "../../types/run.js";
+import type { RunState, ExitCode, RunEvent } from "../../types/domain/run.js";
 import type {
   ApprovalDecision,
   PendingApproval,
-} from "../../types/checkpoint.js";
-import type { TurnCycleContext } from "../../types/kernel.js";
-import type { ToolContext } from "../../types/tool.js";
+} from "../../types/domain/checkpoint.js";
+import type { TurnCycleContext } from "../../types/domain/kernel.js";
+import type { ToolContext } from "../../types/domain/tool.js";
 import type { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import type { HitlConfig } from "../../types/agent.js";
+import type { HitlConfig } from "../../types/domain/agent.js";
 import { TurnCycle } from "../turn-cycle/turn-cycle.js";
 import { applyDecisions } from "../entry/apply-decisions.js";
 

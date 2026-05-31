@@ -1,5 +1,5 @@
-import type { TokenUsage } from "../../contracts/model.js";
-import type { BudgetState, BudgetEvent } from "../../types/budget.js";
+import type { TokenUsage } from "../../types/contracts/model.js";
+import type { BudgetState, BudgetEvent } from "../../types/domain/budget.js";
 
 // ---------------------------------------------------------------------------
 // BudgetLedger — tracks token spend for a single run

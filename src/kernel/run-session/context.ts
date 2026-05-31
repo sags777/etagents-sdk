@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
-import type { AgentDef } from "../../types/agent.js";
-import type { RunContext } from "../../types/kernel.js";
-import type { RunConfig } from "../../types/run.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { RunContext } from "../../types/domain/kernel.js";
+import type { RunConfig } from "../../types/domain/run.js";
 
 /**
  * buildRunContext — merges agent defaults with per-run overrides.

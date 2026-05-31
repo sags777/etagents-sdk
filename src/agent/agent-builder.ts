@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import { nanoid } from "nanoid";
-import type { ModelProvider } from "../contracts/model.js";
-import type { AgentConfig, AgentDef } from "../types/agent.js";
-import type { ToolDef, JsonSchema } from "../types/tool.js";
-import { DEFAULT_CONFIG } from "../config.js";
-import { ModelError } from "../errors.js";
-import { MODEL_PREFIX_MAP, HITL_DEFAULT_MODE } from "../constants.js";
+import type { ModelProvider } from "../types/contracts/model.js";
+import type { AgentConfig, AgentDef } from "../types/domain/agent.js";
+import type { ToolDef, JsonSchema } from "../types/domain/tool.js";
+import { DEFAULT_CONFIG } from "../lib/config.js";
+import { ModelError } from "../lib/errors.js";
+import { MODEL_PREFIX_MAP, HITL_DEFAULT_MODE } from "../lib/constants.js";
 import { AnthropicModel } from "../providers/model/anthropic/anthropic.js";
 import { OpenAIModel } from "../providers/model/openai/openai.js";
 import { GeminiModel } from "../providers/model/gemini/gemini.js";

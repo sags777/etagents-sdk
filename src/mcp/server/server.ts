@@ -4,9 +4,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { ToolDef } from "../../types/tool.js";
-import type { JsonSchema } from "../../types/tool.js";
-import { McpError } from "../../errors.js";
+import type { ToolDef } from "../../types/domain/tool.js";
+import type { JsonSchema } from "../../types/domain/tool.js";
+import { McpError } from "../../lib/errors.js";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

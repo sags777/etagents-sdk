@@ -6,7 +6,7 @@ import type {
   StreamChunk,
   FinishReason,
   TokenUsage,
-} from "../../../contracts/model.js";
+} from "../../../types/contracts/model.js";
 import { sseLines } from "../shared/sse.js";
 import { collectStream, zeroUsage, contentToString } from "../shared/stream.js";
 

@@ -15,11 +15,11 @@ import type {
   RunEventRecord,
   ToolCallRecordFull,
   AgentPromptRecord,
-} from "../../types/records.js";
-import type { RunResult } from "../../types/run.js";
-import type { Message } from "../../types/message.js";
-import type { PendingApproval } from "../../types/checkpoint.js";
-import type { SessionInsights } from "../../types/session.js";
+} from "../../types/domain/records.js";
+import type { RunResult } from "../../types/domain/run.js";
+import type { Message } from "../../types/domain/message.js";
+import type { PendingApproval } from "../../types/domain/checkpoint.js";
+import type { SessionInsights } from "../../types/domain/session.js";
 
 // ---------------------------------------------------------------------------
 // Individual repository interfaces

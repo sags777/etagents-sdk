@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { routeTool } from "./tool-router.js";
 import { ToolRegistry } from "../tool-registry/tool-registry.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
-import type { ToolContext } from "../../types/tool.js";
+import type { ToolContext } from "../../types/domain/tool.js";
 import { createAgent } from "../../agent/agent-builder.js";
 import { defineTool } from "../../agent/tool-builder.js";
 import { MockModel } from "../../providers/model/mock/mock.js";

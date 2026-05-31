@@ -1,6 +1,6 @@
-import type { RunState } from "../../types/run.js";
-import type { AgentDef } from "../../types/agent.js";
-import type { SessionInsights } from "../../types/session.js";
+import type { RunState } from "../../types/domain/run.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { SessionInsights } from "../../types/domain/session.js";
 import type { MemoryPipe } from "../memory-pipe/memory-pipe.js";
 import { runInsight } from "../../insight/extractor/extractor.js";
 

@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { startRun } from "../kernel/entry/start.js";
-import type { AgentDef } from "../types/agent.js";
-import type { RunConfig } from "../types/run.js";
+import type { AgentDef } from "../types/domain/agent.js";
+import type { RunConfig } from "../types/domain/run.js";
 import type {
   ToolConfig,
   ToolDef,
   JsonSchema,
   ToolContext,
-} from "../types/tool.js";
-import { ToolError } from "../errors.js";
+} from "../types/domain/tool.js";
+import { ToolError } from "../lib/errors.js";
 
 // ---------------------------------------------------------------------------
 // AgentAsToolConfig

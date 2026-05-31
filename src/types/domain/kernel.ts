@@ -4,10 +4,10 @@ import type { AgentDef, HitlConfig, LifecycleHooks } from "./agent.js";
 import type { RunEvent } from "./run.js";
 import type { RunEventRecord } from "./records.js";
 
-import type { ToolRegistry } from "../kernel/tool-registry/tool-registry.js";
-import type { McpHub } from "../kernel/mcp-hub/mcp-hub.js";
-import type { PrivacyFence } from "../kernel/privacy-fence/privacy-fence.js";
-import type { BudgetLedger } from "../kernel/budget-ledger/budget-ledger.js";
+import type { ToolRegistry } from "../../kernel/tool-registry/tool-registry.js";
+import type { McpHub } from "../../kernel/mcp-hub/mcp-hub.js";
+import type { PrivacyFence } from "../../kernel/privacy-fence/privacy-fence.js";
+import type { BudgetLedger } from "../../kernel/budget-ledger/budget-ledger.js";
 
 // ---------------------------------------------------------------------------
 // RunSession types

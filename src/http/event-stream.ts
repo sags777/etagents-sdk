@@ -1,9 +1,9 @@
 import { startRun, continueRun } from "../kernel/index.js";
 import { AgentRouter } from "../orchestration/agent-router/agent-router.js";
-import type { AgentDef } from "../types/agent.js";
-import type { ApprovalDecision } from "../types/checkpoint.js";
+import type { AgentDef } from "../types/domain/agent.js";
+import type { ApprovalDecision } from "../types/domain/checkpoint.js";
 import type { RestoreConfig } from "../kernel/entry/continue.js";
-import type { RunEvent } from "../types/run.js";
+import type { RunEvent } from "../types/domain/run.js";
 import type { StreamOptions } from "./stream-options.js";
 import { encodeMessage, encodeError, createDeltaBuffer } from "./sse-helpers.js";
 

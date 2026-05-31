@@ -3,7 +3,7 @@ import type {
   McpServerConfig,
   McpHandle,
   McpToolDef,
-} from "../../types/mcp.js";
+} from "../../types/domain/mcp.js";
 
 // ---------------------------------------------------------------------------
 // McpHub — connects to all configured MCP servers and aggregates their tools

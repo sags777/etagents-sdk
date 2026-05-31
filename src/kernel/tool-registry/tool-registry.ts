@@ -1,5 +1,5 @@
-import type { AgentDef } from "../../types/agent.js";
-import type { ToolDef, JsonSchema } from "../../types/tool.js";
+import type { AgentDef } from "../../types/domain/agent.js";
+import type { ToolDef, JsonSchema } from "../../types/domain/tool.js";
 import type { McpHub } from "../mcp-hub/mcp-hub.js";
 
 // ---------------------------------------------------------------------------

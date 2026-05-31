@@ -7,7 +7,7 @@
 import type { Command } from "commander";
 import { loadAgentFile, withModel } from "../loader/loader.js";
 import { startRun } from "../../kernel/entry/start.js";
-import type { RunConfig, RunEvent } from "../../types/run.js";
+import type { RunConfig, RunEvent } from "../../types/domain/run.js";
 
 export function register(program: Command): void {
   program

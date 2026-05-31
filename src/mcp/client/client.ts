@@ -6,8 +6,8 @@ import type {
   McpServerConfig,
   McpHandle,
   McpToolDef,
-} from "../../types/mcp.js";
-import { McpError } from "../../errors.js";
+} from "../../types/domain/mcp.js";
+import { McpError } from "../../lib/errors.js";
 
 // ---------------------------------------------------------------------------
 // Internal state

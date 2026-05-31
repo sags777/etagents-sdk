@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createAgent } from "./agent-builder.js";
 import { defineTool } from "./tool-builder.js";
 import { MockModel } from "../providers/model/mock/mock.js";
-import { ModelError } from "../errors.js";
-import { DEFAULT_CONFIG } from "../config.js";
+import { ModelError } from "../lib/errors.js";
+import { DEFAULT_CONFIG } from "../lib/config.js";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------

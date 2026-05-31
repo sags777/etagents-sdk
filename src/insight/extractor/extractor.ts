@@ -1,8 +1,8 @@
-import type { Message } from "../../types/message.js";
-import type { ModelProvider } from "../../contracts/model.js";
-import type { InsightConfig, InsightResult } from "../../types/insight.js";
-import { DEFAULT_CONFIG } from "../../config.js";
-import { INSIGHT_PROMPTS } from "../../prompts.js";
+import type { Message } from "../../types/domain/message.js";
+import type { ModelProvider } from "../../types/contracts/model.js";
+import type { InsightConfig, InsightResult } from "../../types/domain/insight.js";
+import { DEFAULT_CONFIG } from "../../lib/config.js";
+import { INSIGHT_PROMPTS } from "../../lib/prompts.js";
 import { stripJsonFences } from "../../providers/model/shared/stream.js";
 
 // ---------------------------------------------------------------------------

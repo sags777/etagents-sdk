@@ -7,7 +7,7 @@ description: Inject logic at key points in the run lifecycle with hooks.
 
 # Lifecycle Hooks
 
-Lifecycle hooks let you inject logic at key moments in a run without modifying the kernel or your tools. Use them for telemetry, audit logging, and debugging.
+Lifecycle hooks let you inject logic at specific moments in a run without modifying the kernel or your tools. Use them for telemetry, audit logging, pre-flight checks, and post-run side effects.
 
 ```typescript
 import { createAgent } from "@etagents/sdk";
@@ -17,37 +17,62 @@ const agent = createAgent({
   systemPrompt: "...",
   model: "claude-sonnet-4-6",
   hooks: {
+    beforeRun: async (input, context) => {
+      await telemetry.record("run_start", { input, runId: context.runId });
+    },
     onTurnStart: async (turn, context) => {
       console.log(`Turn ${turn}: sending to model`);
-    },
-    onToolCall: async (call, context) => {
-      await telemetry.record("tool_call", { name: call.name, runId: context.runId });
     },
     onToolResult: async (result, context) => {
       await telemetry.record("tool_result", { id: result.toolCallId, error: result.isError });
     },
-    beforeComplete: async (messages, context) => {
-      await auditLog.write(messages);
+    afterRun: async (result, context) => {
+      await auditLog.write({ runId: context.runId, status: result.status });
     },
   },
 });
 ```
 
-All hooks are **fail-open**: if a hook throws, the error is logged and the run continues. Hooks can never crash a session.
+Hook behavior is intentionally mixed:
+
+- `beforeRun` and `afterRun` are critical-path hooks. If they throw, the error propagates to the caller.
+- `onTurnStart`, `onTurnEnd`, and `onToolResult` are best-effort hooks. They are wrapped in `safeHook()`, so errors are swallowed and the run continues.
+- `onToolCall` and `beforeComplete` are declared on the public `LifecycleHooks` type but are not invoked by the runtime yet. Use `onEvent` when you need `tool_call` or `complete` notifications today.
 
 ---
 
 ## Available hooks
 
-| Hook | Signature | When |
+| Hook | Signature | Runtime status | When |
 |---|---|---|
-| `onTurnStart` | `(turn: number, context: HookContext) => void \| Promise<void>` | Before each LLM call |
-| `onTurnEnd` | `(turn: number, context: HookContext) => void \| Promise<void>` | After each LLM response |
-| `onToolCall` | `(call: ToolCall, context: HookContext) => void \| Promise<void>` | Before each tool executes |
-| `onToolResult` | `(result: ToolResult, context: HookContext) => void \| Promise<void>` | After each tool returns |
-| `beforeComplete` | `(messages: Message[], context: HookContext) => void \| Promise<void>` | Just before the run returns |
+| `beforeRun` | `(input: string, context: HookContext) => void \| Promise<void>` | wired, errors propagate | Before memory retrieval and the first model turn |
+| `afterRun` | `(result: RunResult, context: HookContext) => void \| Promise<void>` | wired, errors propagate | After persistence and run finalization |
+| `onTurnStart` | `(turn: number, context: HookContext) => void \| Promise<void>` | wired, fail-open | Before each LLM call |
+| `onTurnEnd` | `(turn: number, context: HookContext) => void \| Promise<void>` | wired, fail-open | After each LLM response |
+| `onToolResult` | `(result: ToolResult, context: HookContext) => void \| Promise<void>` | wired, fail-open | After each tool returns |
+| `onToolCall` | `(call: ToolCall, context: HookContext) => void \| Promise<void>` | declared, not invoked yet | Reserved for future tool-call-start hooks |
+| `beforeComplete` | `(messages: Message[], context: HookContext) => void \| Promise<void>` | declared, not invoked yet | Reserved for future final-message inspection |
 
-All hooks may be async. The kernel awaits each hook before continuing.
+All hooks may be async. Wired hooks are awaited before the runtime continues.
+
+---
+
+## beforeRun / afterRun
+
+Use `beforeRun` for pre-flight checks or request-scoped setup that must succeed before the run begins. Use `afterRun` for critical post-run side effects:
+
+```typescript
+hooks: {
+  beforeRun: async (input, context) => {
+    await quota.assertCanRun(context.runId, input);
+  },
+  afterRun: async (result, context) => {
+    await audit.save({ runId: context.runId, status: result.status });
+  },
+},
+```
+
+Because these hooks are on the critical path, errors are **not** swallowed.
 
 ---
 
@@ -77,16 +102,12 @@ const agent = createAgent({
 
 ---
 
-## onToolCall / onToolResult
+## onToolResult
 
-Use these to audit every tool invocation:
+Use this to audit tool outcomes:
 
 ```typescript
 hooks: {
-  onToolCall: async (call, context) => {
-    // call.name, call.args, call.id
-    console.log(`Calling ${call.name} with`, call.args);
-  },
   onToolResult: async (result, context) => {
     // result.toolCallId, result.result (string), result.isError, result.durationMs
     if (result.isError) {
@@ -98,22 +119,12 @@ hooks: {
 
 ---
 
-## beforeComplete
+## Reserved hook slots
 
-`beforeComplete` receives the full `Message[]` array just before the run returns. Use it for final audit logging or message archiving:
+`onToolCall` and `beforeComplete` are part of the public `LifecycleHooks` type, but the current runtime does not invoke them yet. If you need those notifications today:
 
-```typescript
-hooks: {
-  beforeComplete: async (messages, context) => {
-    // Full conversation including tool calls and results
-    await db.archiveConversation(context.runId, messages);
-  },
-},
-```
-
-:::note
-`beforeComplete` fires for every run exit status — `"complete"`, `"error"`, `"cancelled"`, and `"budget_exceeded"`. Check the `RunResult` status in your `onEvent` callback if you only want to act on successful completions.
-:::
+- use `onEvent` with `tool_call` to observe tool dispatch starts
+- use `onEvent` with `complete` to observe run completion
 
 ---
 
@@ -122,7 +133,7 @@ hooks: {
 | | Hooks | `onEvent` |
 |---|---|---|
 | Defined on | `AgentConfig` (applies to all runs) | `RunConfig` (per-run) |
-| Error handling | Fail-open (never crashes) | Fail-open |
+| Error handling | Mixed: `beforeRun` / `afterRun` propagate, turn/tool hooks fail-open | Fail-open |
 | Access to run context | Yes (`agentName`, `runId`, `turn`) | Depends on the event payload |
 | Use for | Persistent telemetry, audit logging | Per-run UI updates, progress display |
 

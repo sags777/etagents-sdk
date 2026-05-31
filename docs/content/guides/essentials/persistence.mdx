@@ -7,7 +7,7 @@ description: Persist and resume runs across processes using FileStore or RedisSt
 
 # Persistence
 
-Persistence lets you save conversation history between runs. Attach a `StoreProvider` and pass a `runId` — the kernel loads previous messages automatically on every subsequent call.
+Persistence lets the SDK write completed run artifacts and HITL checkpoints to a `StoreProvider`. Attach a store when you want durable audit trails, resumable approvals, or offline inspection of run data.
 
 ```typescript
 import { createAgent, startRun, FileStore } from "@etagents/sdk";
@@ -19,21 +19,17 @@ const agent = createAgent({
   store: new FileStore(".sessions"),
 });
 
-// First run — stored under "user-alice"
-await startRun(agent, "My name is Alice.", { runId: "user-alice" });
-
-// Later run — full history rehydrated automatically
-const result = await startRun(agent, "What is my name?", { runId: "user-alice" });
-console.log(result.response); // "Your name is Alice."
+const result = await startRun(agent, "Summarise the latest support ticket");
+console.log(result.status);
 ```
 
-Without `runId`, every call starts a fresh session. With `runId`, the kernel loads the snapshot, appends the new messages, runs, then writes the updated snapshot back.
+New runs always get a fresh kernel-generated `runId`. Caller-supplied `RunConfig.runId` is deprecated and ignored for new runs. Durable continuation is provided by `continueRun(checkpointId, decisions, { agent })` for HITL checkpoints, not by reusing `runId` on `startRun()`.
 
 ---
 
 ## FileStore
 
-`FileStore` writes one JSON file per session to a local directory. No external dependencies required.
+`FileStore` writes one JSON file per key to a local directory. No external dependencies required.
 
 ```typescript
 import { FileStore } from "@etagents/sdk";
@@ -41,13 +37,13 @@ import { FileStore } from "@etagents/sdk";
 const store = new FileStore(".sessions");
 ```
 
-Each file is named `<runId>.json`. You can read, back up, or delete session files directly. Use `FileStore` for:
+Keys are mapped to files under `{baseDir}/{key}.json`. Use `FileStore` for:
 - Local development
 - Single-process deployments
 - Testing
 
 :::warning
-`FileStore` is not safe for concurrent access to the same `runId` from multiple processes. Use `RedisStore` for multi-instance deployments.
+`FileStore` is not safe for concurrent access to the same key from multiple processes. Use `RedisStore` for multi-instance deployments.
 :::
 
 ---
@@ -82,7 +78,7 @@ Use `RedisStore.connect()` in long-lived processes when you want to own the conn
 
 ## Session snapshot format
 
-The kernel reads and writes a `SessionSnapshot` on each run:
+The kernel reconstructs wire-safe `SessionSnapshot` and `SuspendSnapshot` shapes from the normalized store records when needed:
 
 ```typescript
 interface SessionSnapshot {
@@ -92,31 +88,34 @@ interface SessionSnapshot {
   metadata: Record<string, unknown>;    // arbitrary key-value from RunConfig.metadata
   createdAt: string;                    // ISO-8601
   updatedAt: string;
-  __eta: {};                            // reserved for kernel use — do not write to this
+  insights: {
+    facts: string[];
+    userFacts: string[];
+    summary: string;
+    topics: string[];
+  };
+  _kernel: {
+    privacyMap?: PrivacyMap;
+    tokenUsage?: TokenUsage;
+    configFingerprint?: string;
+  };
 }
 ```
 
-You can read snapshots directly from `FileStore` for inspection or migration:
-
-```typescript
-const store = new FileStore(".sessions");
-const snapshot = await store.read<SessionSnapshot>("eta:run:user-alice");
-console.log(snapshot?.messages.length); // number of messages in history
-```
+The default persistence adapter stores normalized entity families for runs, messages, tool calls, events, checkpoints, and approvals rather than a single opaque blob.
 
 ---
 
 ## Metadata
 
-Attach arbitrary metadata to a session via `RunConfig.metadata`. It is persisted with the snapshot and available on reload:
+Attach arbitrary metadata via `RunConfig.metadata`. It is persisted with run and checkpoint records and threaded into `ToolContext`:
 
 ```typescript
 await startRun(agent, "Hello", {
-  runId: "u_123",
   metadata: { userId: "u_123", tier: "pro", source: "web" },
 });
 
-// The metadata is written to the snapshot and available via store.read()
+// The metadata is written alongside persisted run artifacts and checkpoint snapshots
 ```
 
 ---
@@ -161,7 +160,7 @@ See the [HITL guide](../advanced/hitl) for the full suspend/resume flow.
 
 Persistence failures are best-effort. If `store.write()` throws, the error is logged but the run still returns its `RunResult`. A failed persist does not crash the session.
 
-If `store.read()` fails on startup (e.g. corrupt snapshot), the run starts fresh with an empty history.
+If checkpoint or store reads fail during resume, `continueRun()` surfaces the error to the caller.
 
 ---
 

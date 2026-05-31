@@ -150,6 +150,7 @@ const agent = createAgent({
 | `tools` | `ToolDef[]` | `[]` | Callable tools |
 | `mcp` | `McpServerConfig[]` | `[]` | MCP servers to connect |
 | `insight` | `InsightConfig` | disabled | Post-run fact extraction |
+| `memoryRetrieval` | `{ minScore?, topK?, budget? }` | `{ minScore: 0.7 }` | Retrieval filtering and prompt-budget controls for injected memories |
 | `hitl` | `HitlConfig` | `{ mode: "none" }` | Human-in-the-loop |
 | `hooks` | `LifecycleHooks` | no-op hooks | Turn/tool lifecycle callbacks |
 | `maxTurns` | `number` | `20` | Hard turn cap |
@@ -668,40 +669,46 @@ const result = await startRun(agent, input, {
 
 ### Lifecycle Hooks
 
-Five insertion points that can observe run data. All hooks are **fail-open** — errors are swallowed via `safeHook()` and never crash the session.
+`LifecycleHooks` declares seven hook fields. Five are currently wired by the runtime:
+
+- `beforeRun` and `afterRun` are critical-path hooks. Errors propagate to the caller.
+- `onTurnStart`, `onTurnEnd`, and `onToolResult` are best-effort hooks. Errors are swallowed via `safeHook()`.
+- `onToolCall` and `beforeComplete` remain reserved hook slots on the public type and are not invoked by the runtime yet. Use `onEvent` for `tool_call` and `complete` observation today.
 
 ```typescript
 const agent = createAgent({
   name: "my-agent",
   systemPrompt: "...",
   hooks: {
+    beforeRun: async (input, context) => {
+      await telemetry.record("run_start", { input, runId: context.runId });
+    },
     onTurnStart: async (turn, context) => {
       console.log(`Turn ${turn} beginning`);
     },
-    onTurnEnd: async (turn, context) => {
-      console.log(`Turn ${turn} complete`);
-    },
-    onToolCall: async (call, context) => {
-      await telemetry.record("tool_call", { tool: call.name, runId: context.runId });
-    },
     onToolResult: async (result, context) => {
-      await telemetry.record("tool_result", { id: result.toolCallId, error: result.isError });
+      await telemetry.record("tool_result", {
+        id: result.toolCallId,
+        error: result.isError,
+        runId: context.runId,
+      });
     },
-    beforeComplete: async (messages, context) => {
-      // Final chance to inspect the full conversation before the run exits
-      await audit.log(messages);
+    afterRun: async (result, context) => {
+      await audit.log({ runId: context.runId, status: result.status });
     },
   },
 });
 ```
 
-| Hook | Signature | Purpose |
-|------|-----------|---------|
-| `onTurnStart` | `(turn: number, context: HookContext) => void` | Before each LLM call |
-| `onTurnEnd` | `(turn: number, context: HookContext) => void` | After each LLM response |
-| `onToolCall` | `(call: ToolCall, context: HookContext) => void` | Before each tool executes |
-| `onToolResult` | `(result: ToolResult, context: HookContext) => void` | After each tool returns |
-| `beforeComplete` | `(messages: Message[], context: HookContext) => void` | Just before the run returns |
+| Hook | Signature | Runtime status | Purpose |
+|------|-----------|----------------|---------|
+| `beforeRun` | `(input: string, context: HookContext) => void` | wired, errors propagate | Pre-flight checks before memory retrieval and turn 1 |
+| `afterRun` | `(result: RunResult, context: HookContext) => void` | wired, errors propagate | Critical post-run side effects after persistence |
+| `onTurnStart` | `(turn: number, context: HookContext) => void` | wired, fail-open | Before each LLM call |
+| `onTurnEnd` | `(turn: number, context: HookContext) => void` | wired, fail-open | After each LLM response |
+| `onToolResult` | `(result: ToolResult, context: HookContext) => void` | wired, fail-open | After each tool returns |
+| `onToolCall` | `(call: ToolCall, context: HookContext) => void` | declared, not invoked yet | Reserved for future tool-call-start hooks |
+| `beforeComplete` | `(messages: Message[], context: HookContext) => void` | declared, not invoked yet | Reserved for future final-message inspection |
 
 ### Budget Enforcement
 
@@ -872,15 +879,21 @@ Denied tool calls receive a synthetic `"Tool call rejected by human reviewer."` 
 
 ## Memory
 
-The `MemoryProvider` slot adds cross-run semantic recall. Before the first turn, the kernel retrieves relevant memories via `MemoryPipe.retrieve(input)` and appends them to the system prompt as a `Relevant context:` block. After the run, memory indexing happens fire-and-forget; when insight is enabled, the SDK indexes extracted facts by default or only the condensed summary when `injectSummaryOnly: true`.
+The `MemoryProvider` slot adds cross-run semantic recall. Before the first turn, the kernel retrieves relevant memories via `MemoryPipe.retrieve(input)` and appends them to the system prompt as a `Relevant context:` block. Automatic write-back is driven by `insight`: when enabled, the SDK extracts `facts`, `userFacts`, `summary`, and `topics` after the run and indexes typed memory entries for future retrieval.
 
 ```typescript
 import { createAgent, startRun, InMemory } from "@etagents/sdk";
 
+const memory = new InMemory();
+
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant with long-term memory.",
-  memory: new InMemory(),
+  model: "claude-sonnet-4-6",
+  memory,
+  insight: {
+    minTurns: 1,
+  },
 });
 
 // First run — agent notes user preference
@@ -890,6 +903,29 @@ await startRun(agent, "I prefer dark mode and Vim keybindings.");
 const result = await startRun(agent, "What are my editor preferences?");
 // → "You prefer dark mode and Vim keybindings."
 ```
+
+### Memory Retrieval Policy
+
+Tune memory injection with `memoryRetrieval` on `AgentConfig`:
+
+```typescript
+const agent = createAgent({
+  name: "assistant",
+  systemPrompt: "You recall only the most relevant saved context.",
+  memory,
+  memoryRetrieval: {
+    minScore: 0.8,
+    topK: { user_fact: 3, fact: 5, summary: 1, topic: 2 },
+    budget: 2000,
+  },
+});
+```
+
+- `minScore` filters low-similarity matches before prompt injection.
+- `topK` applies per-kind caps after search and optional reranking.
+- `budget` caps the total injected memory text size in characters.
+
+If you pre-seed a provider manually, index entries under `{ agentId: agent.agentId, namespace: "default" }`, which is the scope `RunSession` queries by default. Custom providers should preserve `kind`, `confidence`, and `updatedAt` so retrieval can rank and inspect typed memories consistently.
 
 For production use with Redis Stack:
 
@@ -909,7 +945,7 @@ const memory = await RedisMemory.connect({
 });
 ```
 
-`MemoryProvider` contract: `index()` must never throw (swallow errors — a failed index must not fail the session). `search()` scores must be normalised 0–1 regardless of the underlying metric.
+`MemoryProvider` contract: `index()` must never throw (swallow errors — a failed index must not fail the session). `search()` scores must be normalised 0–1 regardless of the underlying metric. When implemented, optional `rerank()` runs after search and before the SDK applies per-kind caps and budgeting.
 
 ---
 
@@ -1184,25 +1220,25 @@ return new Response(body, { headers: SSE_HEADERS });
 ```typescript
 // app/api/agent/route.ts
 import { createAgent, SessionEventStream, toNextHandler, toNextResponse } from "@etagents/sdk";
-import type { NextRouteRequest } from "@etagents/sdk";
 
 const agent = createAgent({ name: "assistant", systemPrompt: "..." });
 
 export const POST = toNextHandler(agent, {
-  // Optional per-request config resolver
-  resolveConfig: (req: NextRouteRequest) => ({
-    runId: req.headers.get("x-session-id") ?? undefined,
+  config: {
     maxTurns: 20,
-  }),
+  },
 });
 
 export async function PUT(req: Request) {
-  const { prompt, runId } = await req.json();
+  const { prompt, clientRequestId } = await req.json();
   const stream = new SessionEventStream(agent);
-  stream.send("run_id", { runId });
+  stream.send("request_id", { clientRequestId });
   return toNextResponse(stream, prompt, {
-    config: { runId, signal: req.signal },
-    headers: { "X-Run-Id": runId },
+    config: {
+      signal: req.signal,
+      metadata: { clientRequestId },
+    },
+    headers: { "X-Request-Id": clientRequestId },
   });
 }
 ```
@@ -1217,7 +1253,8 @@ import { createAgent, toExpressHandler } from "@etagents/sdk";
 const agent = createAgent({ name: "assistant", systemPrompt: "..." });
 
 app.post("/api/agent", toExpressHandler(agent, {
-  resolveConfig: (req) => ({ runId: req.headers["x-session-id"] }),
+  config: { maxTurns: 20 },
+  headers: { "Access-Control-Allow-Origin": "*" },
 }));
 ```
 
@@ -1516,7 +1553,7 @@ const DEFAULT_CONFIG = {
 | [01-basic-run.ts](examples/01-basic-run.ts) | `createAgent` + single `startRun`, minimal config |
 | [02-streaming.ts](examples/02-streaming.ts) | `onEvent` streaming — `turn_start`, `tool_call`, `complete` |
 | [03-tools.ts](examples/03-tools.ts) | `defineTool` + Zod schemas, parallel and sequential dispatch |
-| [04-memory.ts](examples/04-memory.ts) | `InMemory` provider — cross-run recall |
+| [04-memory.ts](examples/04-memory.ts) | `InMemory` provider — scoped pre-seeding + retrieval policy |
 | [05-privacy.ts](examples/05-privacy.ts) | `RegexPrivacy` — PII masking round-trip |
 | [06-hitl.ts](examples/06-hitl.ts) | HITL suspend + `continueRun` with approval decisions |
 | [07-multi-agent.ts](examples/07-multi-agent.ts) | `AgentRouter` + `RuleRouter` |

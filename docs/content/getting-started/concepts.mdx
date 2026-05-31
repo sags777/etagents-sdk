@@ -103,7 +103,6 @@ See [Concurrency](../guides/advanced/concurrency) and [Tools](../guides/essentia
 import { startRun } from "@etagents/sdk";
 
 const result = await startRun(agent, "Summarise the Q4 sales data", {
-  runId: "session-u123",    // enables persistence
   maxTurns: 15,             // overrides AgentConfig
   maxTokens: 16_000,
   signal: controller.signal, // cancellation
@@ -116,7 +115,7 @@ const result = await startRun(agent, "Summarise the Q4 sales data", {
 ```
 Input arrives
    ↓
-Load session history (if runId + store)
+Build fresh RunContext (kernel-generated runId)
    ↓
 Retrieve memories (if memory provider)
    ↓
@@ -290,5 +289,5 @@ The turn loop, tool routing, budget tracking, HITL checkpointing, and privacy fe
 
 - [Quick Start](./quickstart) — Working examples for each concept.
 - [Streaming](../guides/essentials/streaming) — The `RunEvent` types emitted during a run.
-- [Persistence](../guides/essentials/persistence) — Session snapshots and the `runId` resume flow.
+- [Persistence](../guides/essentials/persistence) — Store-backed run artifacts and HITL checkpoint recovery.
 - [Testing](../guides/testing) — `MockModel` for deterministic, zero-API-call tests.

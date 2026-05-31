@@ -36,7 +36,7 @@ console.log(result.response); // "The capital of France is Paris."
 |---|---|
 | Connect to an LLM | Four built-in providers (Anthropic, OpenAI, Azure, Gemini) + a custom interface |
 | Call typed tools | `defineTool` with Zod validation — the model sees JSON Schema, your handler gets typed args |
-| Persist conversations | `FileStore` (local) and `RedisStore` (distributed) — auto-loaded on `runId` |
+| Persist run artifacts | `FileStore` (local) and `RedisStore` (distributed) — best-effort storage for runs and HITL checkpoints |
 | Mask PII | `RegexPrivacy` with five built-in rules; custom patterns supported |
 | Semantic recall | `InMemory` for dev; `RedisMemory` + embeddings for production |
 | Approve tool calls | HITL suspend/resume — compatible with stateless HTTP endpoints |

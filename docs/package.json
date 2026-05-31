@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "generate:reference": "typedoc --options typedoc.json",
+    "generate:reference": "typedoc --options typedoc.json && node scripts/fix-reference-links.mjs",
     "start": "npm run generate:reference && docusaurus start",
     "build": "npm run generate:reference && docusaurus build",
     "swizzle": "docusaurus swizzle",

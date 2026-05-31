@@ -7,30 +7,29 @@ description: Extract durable facts from completed runs using InsightConfig.
 
 # Insight (Post-Run Reflection)
 
-Insight drives automatic fact extraction after every run. The kernel calls `runInsight()` once the turn loop exits, extracts structured facts from the conversation transcript, and stores them in the session snapshot for injection into future runs.
+Insight drives automatic fact extraction after a run. When `insight` is configured, the kernel calls `runInsight()` once the turn loop exits, persists `SessionInsights` in the session snapshot, and indexes typed memory entries through the configured `MemoryProvider`.
 
 ```typescript
-import { createAgent, startRun } from "@etagents/sdk";
+import { createAgent, startRun, InMemory } from "@etagents/sdk";
+
+const memory = new InMemory();
 
 const agent = createAgent({
   name: "assistant",
   systemPrompt: "You are a helpful assistant.",
   model: "claude-sonnet-4-6",
+  memory,
   insight: {
-    enabled: true,
     model: "claude-haiku-4-5",   // use a cheap model for reflection
     maxFacts: 30,
+    minTurns: 1,
   },
 });
 
-await startRun(agent, "I prefer dark mode and I always use TypeScript.", {
-  runId: "user-alice",
-});
+await startRun(agent, "I prefer dark mode and I always use TypeScript.");
 
 // On the next run, extracted facts are injected into context automatically
-const result = await startRun(agent, "What are my preferences?", {
-  runId: "user-alice",
-});
+const result = await startRun(agent, "What are my preferences?");
 console.log(result.response);
 // "You prefer dark mode and you always use TypeScript."
 ```
@@ -39,20 +38,20 @@ Insight extraction runs after the run exits, on the non-critical path. A failed 
 
 ---
 
-## InsightResult shape
+## SessionInsights shape
 
-When insight runs, it returns an `InsightResult` stored in `SessionSnapshot.__eta`:
+When insight runs, the kernel stores `SessionInsights` in `SessionSnapshot.insights`:
 
 ```typescript
-interface InsightResult {
-  facts: string[];      // Decisions, preferences, action items (evictable, cap: maxFacts)
-  userFacts: string[];  // Identity facts — name, role, title (never evicted, cap: 10)
-  summary: string;      // One-paragraph session summary
+interface SessionInsights {
+  facts: string[];      // Decisions, preferences, action items
+  userFacts: string[];  // Identity facts — name, role, title
+  summary: string;      // One-sentence session summary
   topics: string[];     // High-level topic tags
 }
 ```
 
-On the next run, `facts` and `userFacts` are injected into the system prompt as a `Relevant context:` block before turn 1.
+By default, `facts`, `userFacts`, and `topics` are indexed into memory as `fact`, `user_fact`, and `topic` entries. When `injectSummaryOnly: true`, the SDK indexes only the condensed `summary` as a `summary` entry.
 
 ---
 
@@ -60,16 +59,19 @@ On the next run, `facts` and `userFacts` are injected into the system prompt as 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `boolean` | `false` | Whether to run insight after each run |
-| `model` | `ModelProvider \| string` | agent's model | Model used for extraction (use a cheaper model) |
+| `model` | `string` | agent's model | Model used for extraction (use a cheaper model) |
 | `maxFacts` | `number` | `30` | Cap on session facts (identity facts are separate) |
+| `minTurns` | `number` | unset | Skip extraction on short runs below this turn count |
+| `hypothesize` | `boolean` | `false` | Generate a hypothetical answer before memory retrieval (HyDE) |
+| `injectSummaryOnly` | `boolean` | `false` | Index only `summary` instead of the full fact set |
 | `prompts.extractFacts` | `string` | built-in | Override the extraction prompt |
+| `prompts.summarise` | `string` | built-in | Override the summary prompt |
 
 ```typescript
 insight: {
-  enabled: true,
   model: "claude-haiku-4-5",
   maxFacts: 20,
+  minTurns: 2,
   prompts: {
     extractFacts: "Extract key decisions, user preferences, and open action items only.",
   },
@@ -96,6 +98,8 @@ This means: the more often a preference appears across sessions, the more likely
 
 **`facts`** are session-level observations: decisions made, preferences expressed, tasks completed. They accumulate up to `maxFacts` and are evicted when the cap is reached.
 
+**`topics`** are short labels that make future retrieval easier to route and rank. They are indexed as typed memory entries when `injectSummaryOnly` is false.
+
 ---
 
 ## Choosing the right model
@@ -113,6 +117,6 @@ Avoid using the same model for both the agent and insight extraction in producti
 
 ## Related
 
-- [Persistence](../essentials/persistence) — `InsightResult` is stored in the session snapshot.
+- [Persistence](../essentials/persistence) — `SessionInsights` is stored in the session snapshot.
 - [Core Concepts](../../getting-started/concepts) — `AgentConfig.insight` field reference.
 - [Testing](../testing) — How to test insight extraction with `MockModel`.

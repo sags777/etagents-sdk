@@ -68,12 +68,15 @@ export const POST = toNextHandler(agent, {
 });
 
 export async function PUT(req: Request) {
-  const { prompt, runId } = await req.json() as { prompt: string; runId: string };
+  const { prompt, clientRequestId } = await req.json() as { prompt: string; clientRequestId: string };
   const stream = new SessionEventStream(agent);
-  stream.send("run_id", { runId });
+  stream.send("request_id", { clientRequestId });
   return toNextResponse(stream, prompt, {
-    config: { runId, signal: req.signal },
-    headers: { "X-Run-Id": runId },
+    config: {
+      signal: req.signal,
+      metadata: { clientRequestId },
+    },
+    headers: { "X-Request-Id": clientRequestId },
   });
 }
 ```

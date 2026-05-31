@@ -7,7 +7,6 @@
 
 import { z } from "zod";
 import { createAgent, startRun, continueRun, defineTool, FileStore } from "../src/index.js";
-import type { RunEvent } from "../src/index.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,21 +45,9 @@ const agent = createAgent({
 
 // ── Step 1: start a run — it will suspend awaiting approval ─────────────────
 
-let checkpointId: string | undefined;
-
 const firstResult = await startRun(
   agent,
   "Send a brief welcome email to new@example.com with subject 'Welcome aboard!'",
-  {
-    onEvent(event: RunEvent) {
-      if (event.kind === "complete" && event.result.status === "awaiting_approval") {
-        // The run suspended — a checkpoint was persisted to hitlStore.
-        // In a real app you would read the checkpoint ID from the store or
-        // pass it via metadata; here we grab it from a side-channel.
-        console.log("Run suspended — awaiting human approval.");
-      }
-    },
-  },
 );
 
 if (firstResult.status !== "awaiting_approval") {
@@ -68,26 +55,16 @@ if (firstResult.status !== "awaiting_approval") {
   process.exit(0);
 }
 
-// Retrieve the checkpoint ID from the store
-const keys = await hitlStore.list("suspend:");
-checkpointId = keys[0];
+const checkpointId = firstResult.checkpointId;
+const pendingApprovals = firstResult.pendingApprovals ?? [];
 
 if (!checkpointId) {
-  console.error("No checkpoint found in store.");
-  process.exit(1);
-}
-
-// Remove the "suspend:" prefix that FileStore uses as a key
-const rawKey = checkpointId.replace(/^suspend:/, "");
-const snapshot = await hitlStore.read<{ pendingApprovals: Array<{ toolCallId: string; name: string; args: unknown }> }>(rawKey);
-
-if (!snapshot) {
-  console.error("Could not load checkpoint snapshot.");
+  console.error("No checkpoint ID returned for the suspended run.");
   process.exit(1);
 }
 
 console.log("\nPending tool calls requiring approval:");
-for (const pa of snapshot.pendingApprovals) {
+for (const pa of pendingApprovals) {
   console.log(`  • ${pa.name} — args: ${JSON.stringify(pa.args)}`);
 }
 
@@ -95,12 +72,12 @@ for (const pa of snapshot.pendingApprovals) {
 
 console.log("\nHuman approved all tool calls. Resuming...\n");
 
-const decisions = snapshot.pendingApprovals.map((pa) => ({
+const decisions = pendingApprovals.map((pa) => ({
   toolCallId: pa.toolCallId,
   approved: true,
 }));
 
-const finalResult = await continueRun(rawKey, decisions, { agent });
+const finalResult = await continueRun(checkpointId, decisions, { agent });
 
 console.log("Final response:", finalResult.response);
 console.log("Status:", finalResult.status);

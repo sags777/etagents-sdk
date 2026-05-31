@@ -42,7 +42,6 @@ const agent = createAgent({
 const first = await startRun(
   agent,
   "Send a welcome email to alice@example.com",
-  { runId: "session-alice" },
 );
 
 console.log(first.status); // "awaiting_approval"
@@ -179,9 +178,8 @@ const agent = createAgent({
 
 // POST /api/agent — new run
 export async function POST(req: Request) {
-  const { prompt, runId, userId } = await req.json() as { prompt: string; runId: string; userId: string };
+  const { prompt, userId } = await req.json() as { prompt: string; userId: string };
   const result = await startRun(agent, prompt, {
-    runId,
     metadata: { userId },  // ← stored in checkpoint snapshot
   });
   return Response.json(result);

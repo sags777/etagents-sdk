@@ -108,9 +108,9 @@ describe("get_weather tool", () => {
 
 ---
 
-## Persistence tests with FileStore
+## FileStore test setup
 
-Use a temporary directory per test to isolate session state:
+Use a temporary directory per test to isolate store-backed artifacts such as persisted run records and HITL checkpoints:
 
 ```typescript
 import { createAgent, startRun, FileStore } from "@etagents/sdk";
@@ -129,26 +129,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(storeDir, { recursive: true, force: true });
-});
-
-it("persists and restores conversation history", async () => {
-  const model = new MockModel([
-    { text: "Hello, Sagar!", toolCalls: [], usage: { prompt: 10, completion: 5, total: 15 } },
-    { text: "Your name is Sagar.", toolCalls: [], usage: { prompt: 20, completion: 8, total: 28 } },
-  ]);
-
-  const agent = createAgent({
-    name: "assistant",
-    systemPrompt: "You are a helpful assistant.",
-    model,
-    store,
-  });
-
-  await startRun(agent, "My name is Sagar.", { runId: "test-run" });
-  const result = await startRun(agent, "What is my name?", { runId: "test-run" });
-
-  expect(result.response).toBe("Your name is Sagar.");
-  expect(result.messages.length).toBeGreaterThan(2); // history was loaded
 });
 ```
 

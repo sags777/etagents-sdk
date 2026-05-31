@@ -127,7 +127,7 @@ AgentRouter.create()
   .build()                // Validate and return the router
 ```
 
-`router.run(input, config?)` routes the input, runs the selected agent, and returns a `RunResult`. The `config` is forwarded to `startRun` so you can pass `runId`, `signal`, `onEvent`, etc.
+`router.run(input, config?)` routes the input, runs the selected agent, and returns a `RunResult`. The `config` is forwarded to `startRun` so you can pass `metadata`, `signal`, `onEvent`, `maxTurns`, and similar per-run controls. `runId` remains deprecated and ignored for new runs.
 
 When a router dispatches a child run, the child `RunResult` carries `parentRunId` and `routingDecisionId` for lineage inspection. These fields are set internally by `AgentRouter`; callers should treat them as read-only metadata.
 

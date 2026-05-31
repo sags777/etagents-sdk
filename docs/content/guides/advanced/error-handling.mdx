@@ -161,26 +161,26 @@ import type { AgentDef, RunResult } from "@etagents/sdk";
 async function runSafe(
   agent: AgentDef,
   input: string,
-  runId: string,
+  requestId: string,
 ): Promise<RunResult | null> {
   try {
-    const result = await startRun(agent, input, { runId });
+    const result = await startRun(agent, input);
 
     if (result.status === "error") {
-      logger.error("Agent run error", { runId, message: result.response });
+      logger.error("Agent run error", { requestId, message: result.response });
       return null;
     }
 
     if (result.status === "budget_exceeded") {
-      logger.warn("Budget exceeded", { runId, turns: result.turns, usage: result.totalUsage });
+      logger.warn("Budget exceeded", { requestId, turns: result.turns, usage: result.totalUsage });
     }
 
     return result;
   } catch (err) {
     if (err instanceof EtaError) {
-      logger.error("SDK error", { runId, code: err.code, message: err.message });
+      logger.error("SDK error", { requestId, code: err.code, message: err.message });
     } else {
-      logger.error("Unexpected error", { runId, err });
+      logger.error("Unexpected error", { requestId, err });
     }
     return null;
   }

@@ -117,7 +117,6 @@ const myTool = defineTool({
 
 // Pass metadata when starting the run — it reaches every tool handler
 await startRun(agent, "Do something", {
-  runId: "session-abc",
   metadata: { userId: "u_123", tier: "pro" },
 });
 ```
@@ -138,9 +137,9 @@ await startRun(agent, "Do something", {
 
 ---
 
-## Step 4 — Persist the conversation
+## Step 4 — Persist run artifacts
 
-Set a `runId` to automatically save and reload conversation history. The built-in `FileStore` writes JSON snapshots to disk — no infrastructure required.
+Attach a `StoreProvider` when you want durable run records and HITL checkpoints. New runs still get fresh kernel-generated run IDs.
 
 ```typescript title="agent-persistent.ts"
 import { createAgent, startRun, FileStore } from "@etagents/sdk";
@@ -152,15 +151,11 @@ const agent = createAgent({
   store: new FileStore(".sessions"),
 });
 
-// First message — stored under run ID "user-alice"
-await startRun(agent, "My name is Alice.", { runId: "user-alice" });
-
-// Second message — history is rehydrated automatically
-const result = await startRun(agent, "What is my name?", { runId: "user-alice" });
-console.log(result.response); // "Your name is Alice."
+const result = await startRun(agent, "Summarise today's support queue.");
+console.log(result.status);
 ```
 
-The snapshot is written after every run. Pass the same `runId` on subsequent calls to continue where you left off. See [Persistence](../guides/essentials/persistence) for `RedisStore` and multi-instance deployments.
+Use `memory + insight` for long-term recall across separate runs. Use the store when you need durable artifacts or resumable HITL flows. See [Persistence](../guides/essentials/persistence) for `RedisStore` and checkpoint details.
 
 ---
 
@@ -215,7 +210,7 @@ You now have the core loop:
 - `createAgent` — defines the agent (model, tools, store, system prompt)
 - `defineTool` — wraps your functions with Zod-validated parameters
 - `startRun` — executes the loop and returns a structured `RunResult`
-- `runId` + `FileStore` — persists conversation history across calls
+- `FileStore` — persists run records and HITL checkpoints when you opt in
 - `onEvent` — observes the agent as it works
 
 ## Next steps
